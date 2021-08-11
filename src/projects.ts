@@ -56,7 +56,7 @@ export class DurableProjects {
           throw 'project does not exist';
         }
         let updatedProject = {
-          score: 0,
+          score: project.score,
           approval_count: approve ? project.approval_count + 1 : project.approval_count,
           disapproval_count: approve ? project.disapproval_count : project.disapproval_count + 1,
           id: projectId as string,
