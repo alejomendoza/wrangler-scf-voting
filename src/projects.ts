@@ -55,7 +55,7 @@ export class DurableProjects {
         if (!project) {
           throw 'project does not exist';
         }
-        currentProjects.set(projectId, {
+        let updatedProject = {
           score: 0,
           approval_count: approve ? project.approval_count + 1 : project.approval_count,
           disapproval_count: approve ? project.disapproval_count : project.disapproval_count + 1,
@@ -64,8 +64,9 @@ export class DurableProjects {
           site: project.site,
           logoUrl: project.logoUrl,
           name: project.name,
-        });
-
+        };
+        currentProjects.set(projectId, updatedProject);
+        await this.state.storage.put(projectId, updatedProject);
         break;
       case '/vote':
         const topProjectsIds = url.searchParams.get('top_projects');
@@ -111,10 +112,11 @@ export class DurableProjects {
             name: project.name,
           };
 
-          return currentProjects.set(
+          currentProjects.set(
             project.id,
             updatedProject
           );
+           await this.state.storage.put(project.id, updatedProject);
         });
 
         await Promise.all(ballot);
@@ -130,7 +132,7 @@ export class DurableProjects {
           let projectId = item['_id'];
           let project = currentProjects.get(projectId);
           if (!project) {
-            return currentProjects.set(projectId, {
+            let newProject = {
               score: 0,
               approval_count: 0,
               disapproval_count: 0,
@@ -139,9 +141,11 @@ export class DurableProjects {
               name: item.name,
               site: item['customer-interface-if-featured'],
               logoUrl: item.logo.url,
-            });
-          }
-          await currentProjects.set(projectId, {
+            }
+            currentProjects.set(projectId, newProject);
+            await this.state.storage.put(projectId, newProject);
+          } else {
+             let updatedProject = {
             score: project.score,
             approval_count: project.approval_count,
             disapproval_count: project.disapproval_count,
@@ -150,7 +154,10 @@ export class DurableProjects {
             name: item.name,
             site: item['customer-interface-if-featured'],
             logoUrl: item.logo.url,
-          });
+          }
+            await currentProjects.set(projectId, updatedProject);
+            await this.state.storage.put(projectId, updatedProject)
+          }
         });
 
         await Promise.all(indexItems);
