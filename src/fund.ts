@@ -1,64 +1,16 @@
 import { Project } from './types/project';
 import { Panelist } from './types/panelist';
 import { response } from 'cfw-easy-utils';
-import { fromPairs as loFromPairs } from 'lodash';
-import { bearer } from '@borderless/parse-authorization';
-import { fetchDiscordGuildMember, fetchDiscordUser } from './discord';
+import { handleAuth } from './auth';
+import {
+  panelistKey,
+  PANELISTS_PREFIX,
+  projectKey,
+  PROJECTS_PREFIX,
+} from './prefix';
 
 const webflowApi = 'https://api.webflow.com';
 const collectionId = '610418d70a84c9d77ceaaee3';
-const PROJECTS_PREFIX = 'projects:';
-const PANELISTS_PREFIX = 'panelists:';
-
-async function handleAuth(request: Request) {
-  const headers = loFromPairs([...new Map(request.headers)]);
-  const token = bearer(headers.authorization || '');
-  if (!token) {
-    throw { status: 401, message: 'Missing Authorization header token' };
-  }
-  const {
-    id,
-    email,
-    verified,
-    avatar,
-    username,
-    discriminator,
-  } = await fetchDiscordUser(token);
-
-  const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
-    token,
-    id,
-  );
-
-  if (!id) {
-    throw {
-      status: 404,
-      message: 'Failed to authenticate',
-    };
-  }
-
-  if (!verified) {
-    throw {
-      status: 404,
-      message: 'Discord user missing or the email is unverified',
-    };
-  }
-
-  if (!roles.includes('panelist')) {
-    throw {
-      status: 404,
-      message: 'Discord user missing panelist role',
-    };
-  }
-
-  return {
-    id,
-    email,
-    avatar,
-    username,
-    discriminator,
-  };
-}
 
 export class Fund {
   projects: Map<string, Project> = new Map([]);
@@ -110,7 +62,8 @@ export class Fund {
       request,
     );
 
-    let panelist = await currentPanelists.get(`${PANELISTS_PREFIX}${id}`);
+    const PANELIST_KEY = panelistKey(id);
+    let panelist = await currentPanelists.get(PANELIST_KEY);
 
     switch (pathname) {
       case '/auth':
@@ -126,8 +79,8 @@ export class Fund {
             username: username,
             discriminator: discriminator,
           };
-          currentPanelists.set(`${PANELISTS_PREFIX}${id}`, newPanelist);
-          await this.state.storage.put(`${PANELISTS_PREFIX}${id}`, newPanelist);
+          currentPanelists.set(PANELIST_KEY, newPanelist);
+          await this.state.storage.put(PANELIST_KEY, newPanelist);
           return response.json(newPanelist);
         }
 
@@ -148,7 +101,8 @@ export class Fund {
           throw 'must send project_id as a search param';
         }
 
-        let project = currentProjects.get(projectId);
+        const PROJECT_KEY = projectKey(projectId);
+        let project = currentProjects.get(PROJECT_KEY);
         if (!project) {
           throw 'project does not exist';
         }
@@ -177,11 +131,8 @@ export class Fund {
           logoUrl: project.logoUrl,
           name: project.name,
         };
-        currentProjects.set(`${PROJECTS_PREFIX}${projectId}`, updatedProject);
-        await this.state.storage.put(
-          `${PROJECTS_PREFIX}${projectId}`,
-          updatedProject,
-        );
+        currentProjects.set(PROJECT_KEY, updatedProject);
+        await this.state.storage.put(PROJECT_KEY, updatedProject);
 
         if (approve) {
           panelist.approved.push(projectId);
@@ -189,8 +140,8 @@ export class Fund {
           panelist.disapproved.push(projectId);
         }
 
-        currentPanelists.set(`${PANELISTS_PREFIX}${id}`, panelist);
-        await this.state.storage.put(`${PANELISTS_PREFIX}${id}`, panelist);
+        currentPanelists.set(PANELIST_KEY, panelist);
+        await this.state.storage.put(PANELIST_KEY, panelist);
         break;
       case '/vote':
         if (!panelist) {
@@ -247,16 +198,18 @@ export class Fund {
             name: project.name,
           };
 
-          currentProjects.set(project.id, updatedProject);
-          await this.state.storage.put(project.id, updatedProject);
+          const BALLOT_PROJECT_KEY = projectKey(project.id);
+
+          currentProjects.set(BALLOT_PROJECT_KEY, updatedProject);
+          await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
         });
 
         await Promise.all(ballot);
         panelist.voted = true;
         panelist.ballot = projectsIds;
 
-        currentPanelists.set(`${PANELISTS_PREFIX}${id}`, panelist);
-        await this.state.storage.put(`${PANELISTS_PREFIX}${id}`, panelist);
+        currentPanelists.set(PANELIST_KEY, panelist);
+        await this.state.storage.put(PANELIST_KEY, panelist);
         break;
       case '/panelists':
         return response.json({
@@ -271,7 +224,9 @@ export class Fund {
         const { items }: { items: [] } = results;
         const indexItems = items.map(async (item: any) => {
           let projectId = item['_id'];
-          let project = currentProjects.get(projectId);
+          const INDEX_PROJECT_KEY = projectKey(projectId);
+
+          let project = currentProjects.get(INDEX_PROJECT_KEY);
           if (!project) {
             let newProject = {
               score: 0,
@@ -283,8 +238,8 @@ export class Fund {
               site: item['customer-interface-if-featured'],
               logoUrl: item.logo.url,
             };
-            currentProjects.set(projectId, newProject);
-            await this.state.storage.put(projectId, newProject);
+            currentProjects.set(INDEX_PROJECT_KEY, newProject);
+            await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
           } else {
             let updatedProject = {
               score: project.score,
@@ -296,8 +251,8 @@ export class Fund {
               site: item['customer-interface-if-featured'],
               logoUrl: item.logo.url,
             };
-            await currentProjects.set(projectId, updatedProject);
-            await this.state.storage.put(projectId, updatedProject);
+            await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
+            await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
           }
         });
 
