@@ -15,5 +15,5 @@ main = "./index.mjs"
 
 [durable_objects]
 bindings = [
-  { name = "PROJECTS", class_name = "DurableProjects" } 
+  { name = "FUND", class_name = "Fund" } 
 ]

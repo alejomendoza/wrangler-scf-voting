@@ -1,10 +1,16 @@
 import { Project } from './types/project';
+import { Panelist } from './types/panelist';
 import { response } from 'cfw-easy-utils';
+import { fetchDiscordGuildMember, fetchDiscordUser } from './discord';
 const webflowApi = 'https://api.webflow.com';
 const collectionId = '610418d70a84c9d77ceaaee3';
+const PROJECTS_PREFIX = 'projects:';
+const PANELISTS_PREFIX = 'panelists:';
 
-export class DurableProjects {
+export class Fund {
   projects: Map<string, Project> = new Map([]);
+  panelists: Map<string, Panelist> = new Map([]);
+
   state: DurableObjectState;
   env: Env;
 
@@ -16,8 +22,12 @@ export class DurableProjects {
   }
 
   async initialize() {
-    let stored = await this.state.storage.list<Project>();
-    this.projects = stored;
+    let [projects, panelists] = [
+      await this.state.storage.list<Project>({ prefix: PROJECTS_PREFIX }),
+      await this.state.storage.list<Panelist>({ prefix: PANELISTS_PREFIX }),
+    ];
+    this.projects = projects;
+    this.panelists = panelists;
   }
 
   // Handle HTTP requests from clients.
@@ -42,7 +52,71 @@ export class DurableProjects {
     console.log('pathname: ', pathname);
 
     let currentProjects = this.projects;
+    let currentPanelists = this.panelists;
+
     switch (pathname) {
+      case '/auth':
+        const token = url.searchParams.get('token');
+
+        if (!token) {
+          throw { status: 401, message: 'Missing Authorization header token' };
+        }
+
+        const {
+          id,
+          email,
+          verified,
+          avatar,
+          username,
+          discriminator,
+        } = await fetchDiscordUser(token);
+        const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
+          token,
+          id,
+        );
+
+        if (!id) {
+          throw {
+            status: 404,
+            message: 'Failed to authenticate',
+          };
+        }
+
+        if (!verified) {
+          throw {
+            status: 404,
+            message: 'Discord user missing or the email is unverified',
+          };
+        }
+
+        if (!roles.includes('panelist')) {
+          throw {
+            status: 404,
+            message: 'Discord user missing panelist role',
+          };
+        }
+
+        const panelist = await currentPanelists.get(`${PANELISTS_PREFIX}${id}`);
+
+        if (!panelist) {
+          const newPanelist: Panelist = {
+            id: id,
+            email: email,
+            voted: false,
+            ballot: [],
+            approved: [],
+            disapproved: [],
+            avatar: avatar,
+            username: username,
+            discriminator: discriminator,
+          };
+          currentPanelists.set(`${PANELISTS_PREFIX}${id}`, newPanelist);
+          await this.state.storage.put(`${PANELISTS_PREFIX}${id}`, newPanelist);
+          return response.json(newPanelist);
+        }
+
+        return response.json(panelist);
+
       case '/approve':
         const approve = url.searchParams.get('approve');
         const projectId = url.searchParams.get('project_id');
@@ -57,8 +131,12 @@ export class DurableProjects {
         }
         let updatedProject = {
           score: project.score,
-          approval_count: approve ? project.approval_count + 1 : project.approval_count,
-          disapproval_count: approve ? project.disapproval_count : project.disapproval_count + 1,
+          approval_count: approve
+            ? project.approval_count + 1
+            : project.approval_count,
+          disapproval_count: approve
+            ? project.disapproval_count
+            : project.disapproval_count + 1,
           id: projectId as string,
           description: project.description,
           site: project.site,
@@ -71,13 +149,12 @@ export class DurableProjects {
       case '/vote':
         const topProjectsIds = url.searchParams.get('top_projects');
 
-
         if (!topProjectsIds) {
           throw 'Must send top_projects in the boddy of the request';
         }
 
         let projectsIds: string[] = topProjectsIds.split(',');
-        console.log('top projects:' , topProjectsIds);
+        console.log('top projects:', topProjectsIds);
 
         if (projectsIds.length !== 10) {
           throw 'SCF panelist can only send 10 projects in their ballot';
@@ -92,9 +169,9 @@ export class DurableProjects {
         console.log('passed checks');
 
         let projectsPromises = projectsIds.map(
-          async ( id ): Promise<Project> => {
+          async (id): Promise<Project> => {
             return currentProjects.get(id) as Project;
-          }
+          },
         );
 
         let projects = await Promise.all(projectsPromises);
@@ -112,18 +189,15 @@ export class DurableProjects {
             name: project.name,
           };
 
-          currentProjects.set(
-            project.id,
-            updatedProject
-          );
-           await this.state.storage.put(project.id, updatedProject);
+          currentProjects.set(project.id, updatedProject);
+          await this.state.storage.put(project.id, updatedProject);
         });
 
         await Promise.all(ballot);
         break;
       case '/sync':
         const res = await fetch(
-          `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`
+          `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
         );
         const results = await res.json();
 
@@ -141,29 +215,29 @@ export class DurableProjects {
               name: item.name,
               site: item['customer-interface-if-featured'],
               logoUrl: item.logo.url,
-            }
+            };
             currentProjects.set(projectId, newProject);
             await this.state.storage.put(projectId, newProject);
           } else {
-             let updatedProject = {
-            score: project.score,
-            approval_count: project.approval_count,
-            disapproval_count: project.disapproval_count,
-            id: projectId as string,
-            description: item['quick-description'],
-            name: item.name,
-            site: item['customer-interface-if-featured'],
-            logoUrl: item.logo.url,
-          }
+            let updatedProject = {
+              score: project.score,
+              approval_count: project.approval_count,
+              disapproval_count: project.disapproval_count,
+              id: projectId as string,
+              description: item['quick-description'],
+              name: item.name,
+              site: item['customer-interface-if-featured'],
+              logoUrl: item.logo.url,
+            };
             await currentProjects.set(projectId, updatedProject);
-            await this.state.storage.put(projectId, updatedProject)
+            await this.state.storage.put(projectId, updatedProject);
           }
         });
 
         await Promise.all(indexItems);
 
       case '/':
-         break;
+        break;
       default:
         return new Response('Not found', { status: 404 });
     }
@@ -174,11 +248,11 @@ export class DurableProjects {
     // That's why we stored the counter value created by this
     // request in `currentValue` before we used `await`.
     return response.json({
-      projects:Array.from(currentProjects)
-          .map(([, project]) => project)
-          .sort((a, b) => {
-            return b.score - a.score;
-          })
+      projects: Array.from(currentProjects)
+        .map(([, project]) => project)
+        .sort((a, b) => {
+          return b.score - a.score;
+        }),
     });
   }
 }
