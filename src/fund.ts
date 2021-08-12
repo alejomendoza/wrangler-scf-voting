@@ -1,11 +1,64 @@
 import { Project } from './types/project';
 import { Panelist } from './types/panelist';
 import { response } from 'cfw-easy-utils';
+import { fromPairs as loFromPairs } from 'lodash';
+import { bearer } from '@borderless/parse-authorization';
 import { fetchDiscordGuildMember, fetchDiscordUser } from './discord';
+
 const webflowApi = 'https://api.webflow.com';
 const collectionId = '610418d70a84c9d77ceaaee3';
 const PROJECTS_PREFIX = 'projects:';
 const PANELISTS_PREFIX = 'panelists:';
+
+async function handleAuth(request: Request) {
+  const headers = loFromPairs([...new Map(request.headers)]);
+  const token = bearer(headers.authorization || '');
+  if (!token) {
+    throw { status: 401, message: 'Missing Authorization header token' };
+  }
+  const {
+    id,
+    email,
+    verified,
+    avatar,
+    username,
+    discriminator,
+  } = await fetchDiscordUser(token);
+
+  const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
+    token,
+    id,
+  );
+
+  if (!id) {
+    throw {
+      status: 404,
+      message: 'Failed to authenticate',
+    };
+  }
+
+  if (!verified) {
+    throw {
+      status: 404,
+      message: 'Discord user missing or the email is unverified',
+    };
+  }
+
+  if (!roles.includes('panelist')) {
+    throw {
+      status: 404,
+      message: 'Discord user missing panelist role',
+    };
+  }
+
+  return {
+    id,
+    email,
+    avatar,
+    username,
+    discriminator,
+  };
+}
 
 export class Fund {
   projects: Map<string, Project> = new Map([]);
@@ -46,7 +99,6 @@ export class Fund {
     }
     await this.initializePromise;
 
-    // Apply requested action.
     let url = new URL(request.url);
     let { pathname } = url;
     console.log('pathname: ', pathname);
@@ -54,50 +106,14 @@ export class Fund {
     let currentProjects = this.projects;
     let currentPanelists = this.panelists;
 
+    const { id, email, avatar, username, discriminator } = await handleAuth(
+      request,
+    );
+
+    let panelist = await currentPanelists.get(`${PANELISTS_PREFIX}${id}`);
+
     switch (pathname) {
       case '/auth':
-        const token = url.searchParams.get('token');
-
-        if (!token) {
-          throw { status: 401, message: 'Missing Authorization header token' };
-        }
-
-        const {
-          id,
-          email,
-          verified,
-          avatar,
-          username,
-          discriminator,
-        } = await fetchDiscordUser(token);
-        const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
-          token,
-          id,
-        );
-
-        if (!id) {
-          throw {
-            status: 404,
-            message: 'Failed to authenticate',
-          };
-        }
-
-        if (!verified) {
-          throw {
-            status: 404,
-            message: 'Discord user missing or the email is unverified',
-          };
-        }
-
-        if (!roles.includes('panelist')) {
-          throw {
-            status: 404,
-            message: 'Discord user missing panelist role',
-          };
-        }
-
-        const panelist = await currentPanelists.get(`${PANELISTS_PREFIX}${id}`);
-
         if (!panelist) {
           const newPanelist: Panelist = {
             id: id,
@@ -121,6 +137,13 @@ export class Fund {
         const approve = url.searchParams.get('approve');
         const projectId = url.searchParams.get('project_id');
 
+        if (!panelist) {
+          throw {
+            status: 404,
+            message: 'Authenticate as a panelist to vote',
+          };
+        }
+
         if (!projectId) {
           throw 'must send project_id as a search param';
         }
@@ -129,6 +152,17 @@ export class Fund {
         if (!project) {
           throw 'project does not exist';
         }
+
+        if (
+          panelist.approved.includes(projectId) ||
+          panelist.disapproved.includes(projectId)
+        ) {
+          throw {
+            status: 403,
+            message: 'You already voted for this project',
+          };
+        }
+
         let updatedProject = {
           score: project.score,
           approval_count: approve
@@ -143,10 +177,34 @@ export class Fund {
           logoUrl: project.logoUrl,
           name: project.name,
         };
-        currentProjects.set(projectId, updatedProject);
-        await this.state.storage.put(projectId, updatedProject);
+        currentProjects.set(`${PROJECTS_PREFIX}${projectId}`, updatedProject);
+        await this.state.storage.put(
+          `${PROJECTS_PREFIX}${projectId}`,
+          updatedProject,
+        );
+
+        if (approve) {
+          panelist.approved.push(projectId);
+        } else {
+          panelist.disapproved.push(projectId);
+        }
+
+        currentPanelists.set(`${PANELISTS_PREFIX}${id}`, panelist);
+        await this.state.storage.put(`${PANELISTS_PREFIX}${id}`, panelist);
         break;
       case '/vote':
+        if (!panelist) {
+          throw {
+            status: 404,
+            message: 'Authenticate as a panelist to vote',
+          };
+        }
+        if (panelist.voted) {
+          throw {
+            status: 403,
+            message: 'You already submitted your ballot',
+          };
+        }
         const topProjectsIds = url.searchParams.get('top_projects');
 
         if (!topProjectsIds) {
@@ -162,15 +220,15 @@ export class Fund {
 
         console.log('passed length check');
 
-        // if (projectsIds.length === new Set(projectsIds).size){
-        //   throw 'SCF panelist can not repeat projects in their ballot';
-        // }
+        if (projectsIds.length === new Set(projectsIds).size) {
+          throw 'SCF panelist can not repeat projects in their ballot';
+        }
 
         console.log('passed checks');
 
         let projectsPromises = projectsIds.map(
-          async (id): Promise<Project> => {
-            return currentProjects.get(id) as Project;
+          async (projectId): Promise<Project> => {
+            return currentProjects.get(projectId) as Project;
           },
         );
 
@@ -194,7 +252,16 @@ export class Fund {
         });
 
         await Promise.all(ballot);
+        panelist.voted = true;
+        panelist.ballot = projectsIds;
+
+        currentPanelists.set(`${PANELISTS_PREFIX}${id}`, panelist);
+        await this.state.storage.put(`${PANELISTS_PREFIX}${id}`, panelist);
         break;
+      case '/panelists':
+        return response.json({
+          panelists: Array.from(currentPanelists).map(([, value]) => value),
+        });
       case '/sync':
         const res = await fetch(
           `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
