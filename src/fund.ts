@@ -159,20 +159,29 @@ export class Fund {
         const topProjectsIds = url.searchParams.get('top_projects');
 
         if (!topProjectsIds) {
-          throw 'Must send top_projects in the boddy of the request';
+          throw {
+            status: 403,
+            message: 'Must send top_projects in the boddy of the request',
+          };
         }
 
         let projectsIds: string[] = topProjectsIds.split(',');
         console.log('top projects:', topProjectsIds);
 
         if (projectsIds.length !== 10) {
-          throw 'SCF panelist can only send 10 projects in their ballot';
+          throw {
+            status: 403,
+            message: 'SCF panelist can only send 10 projects in their ballot',
+          };
         }
 
         console.log('passed length check');
 
         if (projectsIds.length === new Set(projectsIds).size) {
-          throw 'SCF panelist can not repeat projects in their ballot';
+          throw {
+            status: 403,
+            message: 'SCF panelist can not repeat projects in their ballot',
+          };
         }
 
         console.log('passed checks');
@@ -261,7 +270,10 @@ export class Fund {
       case '/':
         break;
       default:
-        return new Response('Not found', { status: 404 });
+        throw {
+          status: 404,
+          message: 'Not Found',
+        };
     }
 
     // Return `currentValue`. Note that `this.value` may have been
