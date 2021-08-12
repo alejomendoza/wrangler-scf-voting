@@ -11,8 +11,8 @@ export default {
 };
 
 async function handleRequest(request: Request, env: Env) {
-  let id = env.Fund.idFromName('A');
-  let obj = env.Fund.get(id);
+  let id = env.FUND.idFromName('A');
+  let obj = env.FUND.get(id);
   let res = await obj.fetch(request.url);
   let results = await res.text();
 
@@ -20,5 +20,5 @@ async function handleRequest(request: Request, env: Env) {
 }
 
 interface Env {
-  Fund: DurableObjectNamespace;
+  FUND: DurableObjectNamespace;
 }
