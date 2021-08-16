@@ -1,8 +1,7 @@
 export type Project = {
   id: string;
   score: number;
-  approval_count: number;
-  disapproval_count: number;
+  vote_count: number;
   description: string;
   name: string;
   site: string;

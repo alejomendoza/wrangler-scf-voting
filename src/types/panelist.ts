@@ -3,8 +3,7 @@ export type Panelist = {
   email: string;
   voted: boolean;
   ballot: string[];
-  approved: string[];
-  disapproved: string[];
+  votes: string[];
   avatar: string;
   username: string;
   discriminator: string;

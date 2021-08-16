@@ -73,8 +73,7 @@ export class Fund {
             email: email,
             voted: false,
             ballot: [],
-            approved: [],
-            disapproved: [],
+            votes: [],
             avatar: avatar,
             username: username,
             discriminator: discriminator,
@@ -86,8 +85,7 @@ export class Fund {
 
         return response.json(panelist);
 
-      case '/approve':
-        const approve = url.searchParams.get('approve');
+      case '/vote':
         const projectId = url.searchParams.get('project_id');
 
         if (!panelist) {
@@ -107,10 +105,7 @@ export class Fund {
           throw 'project does not exist';
         }
 
-        if (
-          panelist.approved.includes(projectId) ||
-          panelist.disapproved.includes(projectId)
-        ) {
+        if (panelist.votes.includes(projectId)) {
           throw {
             status: 403,
             message: 'You already voted for this project',
@@ -119,12 +114,7 @@ export class Fund {
 
         let updatedProject = {
           score: project.score,
-          approval_count: approve
-            ? project.approval_count + 1
-            : project.approval_count,
-          disapproval_count: approve
-            ? project.disapproval_count
-            : project.disapproval_count + 1,
+          vote_count: project.vote_count + 1,
           id: projectId as string,
           description: project.description,
           site: project.site,
@@ -134,16 +124,12 @@ export class Fund {
         currentProjects.set(PROJECT_KEY, updatedProject);
         await this.state.storage.put(PROJECT_KEY, updatedProject);
 
-        if (approve) {
-          panelist.approved.push(projectId);
-        } else {
-          panelist.disapproved.push(projectId);
-        }
+        panelist.votes.push(projectId);
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
         break;
-      case '/vote':
+      case '/ballot':
         if (!panelist) {
           throw {
             status: 404,
@@ -168,7 +154,7 @@ export class Fund {
         let projectsIds: string[] = topProjectsIds.split(',');
         console.log('top projects:', topProjectsIds);
 
-        if (projectsIds.length !== 10) {
+        if (projectsIds.length !== 3) {
           throw {
             status: 403,
             message: 'SCF panelist can only send 10 projects in their ballot',
@@ -198,8 +184,7 @@ export class Fund {
           let score = index + 1;
           let updatedProject: Project = {
             score: project.score + score,
-            approval_count: project.approval_count,
-            disapproval_count: project.disapproval_count,
+            vote_count: project.vote_count,
             id: project.id,
             description: project.description,
             site: project.site,
@@ -239,8 +224,7 @@ export class Fund {
           if (!project) {
             let newProject = {
               score: 0,
-              approval_count: 0,
-              disapproval_count: 0,
+              vote_count: 0,
               id: projectId as string,
               description: item['quick-description'],
               name: item.name,
@@ -252,8 +236,7 @@ export class Fund {
           } else {
             let updatedProject = {
               score: project.score,
-              approval_count: project.approval_count,
-              disapproval_count: project.disapproval_count,
+              vote_count: project.vote_count,
               id: projectId as string,
               description: item['quick-description'],
               name: item.name,
