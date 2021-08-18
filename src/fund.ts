@@ -276,4 +276,5 @@ export class Fund {
 
 interface Env {
   WEBFLOW_API_KEY: string;
+  BOT_TOKEN: string;
 }

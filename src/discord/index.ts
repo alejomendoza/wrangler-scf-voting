@@ -2,7 +2,11 @@ import { handleResponse } from '../utils';
 
 export const discordApiUrl = 'https://discord.com/api';
 export const discordUserUrl = `${discordApiUrl}/users/@me`;
-export const discordServerUrl = `${discordApiUrl}/guilds/831188872536784947`;
+export const scfGuildId = '831188872536784947';
+export const discordServerUrl = `${discordApiUrl}/guilds/${scfGuildId}`;
+export const discordServerRoles = `${discordApiUrl}/guilds/${scfGuildId}/roles`;
+export const adminRoleId = '845026552286937119';
+export const verifiedRoleId = '831189270344630293';
 
 export async function fetchDiscordUser(token: string) {
   return await fetch(discordUserUrl, {
@@ -15,10 +19,18 @@ export async function fetchDiscordUser(token: string) {
   }).then(handleResponse);
 }
 
-export async function fetchDiscordGuildMember(token: string, id: string) {
+export async function fetchDiscordGuildMember(id: string) {
   return await fetch(`${discordServerUrl}/members/${id}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bot ${BOT_TOKEN}`,
+    },
+  }).then(handleResponse);
+}
+
+export async function fetchDiscordRoles() {
+  return await fetch(`${discordServerRoles}`, {
+    headers: {
+      Authorization: `Bot ${BOT_TOKEN}`,
     },
   }).then(handleResponse);
 }

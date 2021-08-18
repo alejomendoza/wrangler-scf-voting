@@ -1,6 +1,11 @@
 import { fromPairs as loFromPairs } from 'lodash';
 import { bearer } from '@borderless/parse-authorization';
-import { fetchDiscordGuildMember, fetchDiscordUser } from '../discord';
+import {
+  adminRoleId,
+  fetchDiscordGuildMember,
+  fetchDiscordUser,
+  verifiedRoleId,
+} from '../discord';
 
 export async function handleAuth(request: Request) {
   const headers = loFromPairs([...new Map(request.headers)]);
@@ -17,10 +22,7 @@ export async function handleAuth(request: Request) {
     discriminator,
   } = await fetchDiscordUser(token);
 
-  const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
-    token,
-    id,
-  );
+  const { roles }: { roles: string[] } = await fetchDiscordGuildMember(token);
 
   if (!id) {
     throw {
@@ -36,10 +38,10 @@ export async function handleAuth(request: Request) {
     };
   }
 
-  if (!roles.includes('panelist')) {
+  if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
     throw {
       status: 404,
-      message: 'Discord user missing panelist role',
+      message: 'Discord user missing required roles',
     };
   }
 
