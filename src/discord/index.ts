@@ -19,10 +19,10 @@ export async function fetchDiscordUser(token: string) {
   }).then(handleResponse);
 }
 
-export async function fetchDiscordGuildMember(id: string) {
+export async function fetchDiscordGuildMember(id: string, botToken: string) {
   return await fetch(`${discordServerUrl}/members/${id}`, {
     headers: {
-      Authorization: `Bot ${BOT_TOKEN}`,
+      Authorization: `Bot ${botToken}`,
     },
   }).then(handleResponse);
 }

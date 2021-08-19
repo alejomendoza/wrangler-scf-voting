@@ -1,13 +1,19 @@
 import { Project } from './types/project';
 import { Panelist } from './types/panelist';
 import { response } from 'cfw-easy-utils';
-import { handleAuth } from './auth';
 import {
   panelistKey,
   PANELISTS_PREFIX,
   projectKey,
   PROJECTS_PREFIX,
 } from './prefix';
+import { bearer } from '@borderless/parse-authorization';
+import {
+  adminRoleId,
+  fetchDiscordGuildMember,
+  fetchDiscordUser,
+  verifiedRoleId,
+} from './discord';
 
 const webflowApi = 'https://api.webflow.com';
 const collectionId = '610418d70a84c9d77ceaaee3';
@@ -31,8 +37,13 @@ export class Fund {
       await this.state.storage.list<Project>({ prefix: PROJECTS_PREFIX }),
       await this.state.storage.list<Panelist>({ prefix: PANELISTS_PREFIX }),
     ];
-    this.projects = projects;
-    this.panelists = panelists;
+
+    if (projects) {
+      this.projects = projects;
+    }
+    if (panelists) {
+      this.panelists = panelists;
+    }
   }
 
   // Handle HTTP requests from clients.
@@ -53,14 +64,55 @@ export class Fund {
 
     let url = new URL(request.url);
     let { pathname } = url;
-    console.log('pathname: ', pathname);
 
     let currentProjects = this.projects;
     let currentPanelists = this.panelists;
+    const headers = new Map(request.headers);
+    const token = bearer(headers.get('authorization') || '');
 
-    const { id, email, avatar, username, discriminator } = await handleAuth(
-      request,
+    if (!token) {
+      return response.json({
+        status: 401,
+        message: 'Missing Authorization header token',
+      });
+    }
+
+    const {
+      id,
+      email,
+      verified,
+      avatar,
+      username,
+      discriminator,
+    } = await fetchDiscordUser(token);
+
+    const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
+      id,
+      this.env.BOT_TOKEN,
     );
+
+    if (!id) {
+      return response.json({
+        status: 404,
+        message: 'Failed to authenticate',
+      });
+    }
+
+    if (!verified) {
+      return response.json({
+        status: 404,
+        message: 'Discord user missing or the email is unverified',
+      });
+    }
+
+    // if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
+    //   return response.json({
+    //     status: 404,
+    //     message: 'Discord user missing required roles',
+    //   });
+    // }
+
+    console.log('user id: ', id);
 
     const PANELIST_KEY = panelistKey(id);
     let panelist = await currentPanelists.get(PANELIST_KEY);
