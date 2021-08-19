@@ -266,13 +266,13 @@ export class Fund {
         if (projectsIds.length !== 3) {
           return response.json({
             status: 403,
-            message: 'SCF panelist can only send 10 projects in their ballot',
+            message: 'SCF panelist can only send 3 projects in their ballot',
           });
         }
 
         console.log('passed length check');
 
-        if (projectsIds.length === new Set(projectsIds).size) {
+        if (projectsIds.length !== new Set(projectsIds).size) {
           return response.json({
             status: 403,
             message: 'SCF panelist can not repeat projects in their ballot',
