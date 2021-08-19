@@ -141,27 +141,33 @@ export class Fund {
         const projectId = url.searchParams.get('project_id');
 
         if (!panelist) {
-          throw {
+          return response.json({
             status: 404,
             message: 'Authenticate as a panelist to vote',
-          };
+          });
         }
 
         if (!projectId) {
-          throw 'must send project_id as a search param';
+          return response.json({
+            status: 404,
+            message: 'must send project_id as a search param',
+          });
         }
 
         const PROJECT_KEY = projectKey(projectId);
         let project = currentProjects.get(PROJECT_KEY);
         if (!project) {
-          throw 'project does not exist';
+          return response.json({
+            status: 404,
+            message: 'project does not exist',
+          });
         }
 
         if (panelist.votes.includes(projectId)) {
-          throw {
+          return response.json({
             status: 403,
             message: 'You already voted for this project',
-          };
+          });
         }
 
         let updatedProject = {
@@ -183,43 +189,43 @@ export class Fund {
         break;
       case '/ballot':
         if (!panelist) {
-          throw {
+          return response.json({
             status: 404,
             message: 'Authenticate as a panelist to vote',
-          };
+          });
         }
         if (panelist.voted) {
-          throw {
+          return response.json({
             status: 403,
             message: 'You already submitted your ballot',
-          };
+          });
         }
         const topProjectsIds = url.searchParams.get('top_projects');
 
         if (!topProjectsIds) {
-          throw {
+          return response.json({
             status: 403,
             message: 'Must send top_projects in the boddy of the request',
-          };
+          });
         }
 
         let projectsIds: string[] = topProjectsIds.split(',');
         console.log('top projects:', topProjectsIds);
 
         if (projectsIds.length !== 3) {
-          throw {
+          return response.json({
             status: 403,
             message: 'SCF panelist can only send 10 projects in their ballot',
-          };
+          });
         }
 
         console.log('passed length check');
 
         if (projectsIds.length === new Set(projectsIds).size) {
-          throw {
+          return response.json({
             status: 403,
             message: 'SCF panelist can not repeat projects in their ballot',
-          };
+          });
         }
 
         console.log('passed checks');
@@ -305,10 +311,10 @@ export class Fund {
       case '/':
         break;
       default:
-        throw {
+        return response.json({
           status: 404,
           message: 'Not Found',
-        };
+        });
     }
 
     // Return `currentValue`. Note that `this.value` may have been
