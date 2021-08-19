@@ -364,7 +364,7 @@ export class Fund {
           projects: Array.from(currentProjects)
             .map(([, project]) => project)
             .sort((a, b) => {
-              return b.score - a.score;
+              return b.vote_count - a.vote_count;
             }),
         });
       case '/':
