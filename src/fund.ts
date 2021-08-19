@@ -137,6 +137,57 @@ export class Fund {
 
         return response.json(panelist);
 
+      case '/remove-vote':
+        const removeId = url.searchParams.get('project_id');
+
+        if (!panelist) {
+          return response.json({
+            status: 404,
+            message: 'Authenticate as a panelist to vote',
+          });
+        }
+
+        if (!removeId) {
+          return response.json({
+            status: 404,
+            message: 'must send project_id as a search param',
+          });
+        }
+
+        const REMOVE_PROJECT_KEY = projectKey(removeId);
+        let removedVoteProject = currentProjects.get(REMOVE_PROJECT_KEY);
+        if (!removedVoteProject) {
+          return response.json({
+            status: 404,
+            message: 'project does not exist',
+          });
+        }
+
+        if (!panelist.votes.includes(removeId)) {
+          return response.json({
+            status: 403,
+            message: 'You have not voted for this project',
+          });
+        }
+
+        let removedVoteUpdate = {
+          score: removedVoteProject.score,
+          vote_count: removedVoteProject.vote_count - 1,
+          id: removeId as string,
+          description: removedVoteProject.description,
+          site: removedVoteProject.site,
+          logoUrl: removedVoteProject.logoUrl,
+          name: removedVoteProject.name,
+        };
+        currentProjects.set(REMOVE_PROJECT_KEY, removedVoteUpdate);
+        await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
+
+        panelist.votes = panelist.votes.filter(vote => vote !== removeId);
+
+        currentPanelists.set(PANELIST_KEY, panelist);
+        await this.state.storage.put(PANELIST_KEY, panelist);
+        return response.json(removedVoteUpdate);
+
       case '/vote':
         const projectId = url.searchParams.get('project_id');
 
@@ -186,7 +237,7 @@ export class Fund {
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
-        break;
+        return response.json(updatedProject);
       case '/ballot':
         if (!panelist) {
           return response.json({
