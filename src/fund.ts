@@ -283,7 +283,7 @@ export class Fund {
 
         let projectsPromises = projectsIds.map(
           async (projectId): Promise<Project> => {
-            return currentProjects.get(projectKey(projectId)) as Project;
+            return currentProjects.get(projectId) as Project;
           },
         );
 
