@@ -188,7 +188,7 @@ export class Fund {
         await this.state.storage.put(PANELIST_KEY, panelist);
         return response.json(removedVoteUpdate);
 
-      case '/vote':
+      case '/add-vote':
         const projectId = url.searchParams.get('project_id');
 
         if (!panelist) {
@@ -318,7 +318,7 @@ export class Fund {
         return response.json({
           panelists: Array.from(currentPanelists).map(([, value]) => value),
         });
-      case '/sync':
+      case '/sync-projects':
         const res = await fetch(
           `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
         );
@@ -359,6 +359,14 @@ export class Fund {
 
         await Promise.all(indexItems);
 
+      case '/projects':
+        return response.json({
+          projects: Array.from(currentProjects)
+            .map(([, project]) => project)
+            .sort((a, b) => {
+              return b.score - a.score;
+            }),
+        });
       case '/':
         break;
       default:
