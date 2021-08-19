@@ -283,7 +283,8 @@ export class Fund {
 
         let projectsPromises = projectsIds.map(
           async (projectId): Promise<Project> => {
-            return currentProjects.get(projectId) as Project;
+            const PROJECT_KEY = projectKey(projectId);
+            return currentProjects.get(PROJECT_KEY) as Project;
           },
         );
 
@@ -364,7 +365,7 @@ export class Fund {
           projects: Array.from(currentProjects)
             .map(([, project]) => project)
             .sort((a, b) => {
-              return b.vote_count - a.vote_count;
+              return b.vote_count - a.vote_count || b.score - a.score;
             }),
         });
       case '/':
@@ -385,7 +386,7 @@ export class Fund {
       projects: Array.from(currentProjects)
         .map(([, project]) => project)
         .sort((a, b) => {
-          return b.score - a.score;
+          return b.vote_count - a.vote_count || b.score - a.score;
         }),
     });
   }
