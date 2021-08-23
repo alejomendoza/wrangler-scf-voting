@@ -137,8 +137,16 @@ export class Fund {
 
         return response.json(panelist);
 
-      case '/remove-vote':
-        const removeId = url.searchParams.get('project_id');
+      case '/unapprove':
+        if (request.method !== 'POST') {
+          return response.json({
+            status: 404,
+            message: 'must send a POST request',
+          });
+        }
+
+        const removeVoteBody = await request.json();
+        const removeSlug = removeVoteBody.slug;
 
         if (!panelist) {
           return response.json({
@@ -147,14 +155,14 @@ export class Fund {
           });
         }
 
-        if (!removeId) {
+        if (!removeSlug) {
           return response.json({
             status: 404,
-            message: 'must send project_id as a search param',
+            message: 'must send slug as a body param',
           });
         }
 
-        const REMOVE_PROJECT_KEY = projectKey(removeId);
+        const REMOVE_PROJECT_KEY = projectKey(removeSlug);
         let removedVoteProject = currentProjects.get(REMOVE_PROJECT_KEY);
         if (!removedVoteProject) {
           return response.json({
@@ -163,7 +171,7 @@ export class Fund {
           });
         }
 
-        if (!panelist.approved.includes(removeId)) {
+        if (!panelist.approved.includes(removeSlug)) {
           return response.json({
             status: 403,
             message: 'You have not voted for this project',
@@ -171,26 +179,29 @@ export class Fund {
         }
 
         let removedVoteUpdate = {
-          score: removedVoteProject.score,
+          ...removedVoteProject,
           approved_count: removedVoteProject.approved_count - 1,
-          id: removeId as string,
-          description: removedVoteProject.description,
-          site: removedVoteProject.site,
-          logoUrl: removedVoteProject.logoUrl,
-          name: removedVoteProject.name,
-          slug: removedVoteProject.slug,
         };
         currentProjects.set(REMOVE_PROJECT_KEY, removedVoteUpdate);
         await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
 
-        panelist.approved = panelist.approved.filter(vote => vote !== removeId);
+        panelist.approved = panelist.approved.filter(
+          vote => vote !== removeSlug,
+        );
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
         return response.json(removedVoteUpdate);
 
-      case '/add-vote':
-        const projectId = url.searchParams.get('project_id');
+      case '/approve':
+        if (request.method !== 'POST') {
+          return response.json({
+            status: 404,
+            message: 'must send a POST request',
+          });
+        }
+        const addVoteBody = await request.json();
+        const slug = addVoteBody.slug;
 
         if (!panelist) {
           return response.json({
@@ -199,14 +210,14 @@ export class Fund {
           });
         }
 
-        if (!projectId) {
+        if (!slug) {
           return response.json({
             status: 404,
-            message: 'must send project_id as a search param',
+            message: 'must send slug as a search param',
           });
         }
 
-        const PROJECT_KEY = projectKey(projectId);
+        const PROJECT_KEY = projectKey(slug);
         let project = currentProjects.get(PROJECT_KEY);
         if (!project) {
           return response.json({
@@ -215,7 +226,7 @@ export class Fund {
           });
         }
 
-        if (panelist.approved.includes(projectId)) {
+        if (panelist.approved.includes(slug)) {
           return response.json({
             status: 403,
             message: 'You already voted for this project',
@@ -223,24 +234,27 @@ export class Fund {
         }
 
         let updatedProject = {
-          score: project.score,
+          ...project,
           approved_count: project.approved_count + 1,
-          id: projectId as string,
-          description: project.description,
-          site: project.site,
-          logoUrl: project.logoUrl,
-          name: project.name,
-          slug: project.slug,
         };
         currentProjects.set(PROJECT_KEY, updatedProject);
         await this.state.storage.put(PROJECT_KEY, updatedProject);
 
-        panelist.approved.push(projectId);
+        panelist.approved.push(slug);
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
         return response.json(updatedProject);
-      case '/ballot':
+      case '/favorites':
+        if (request.method !== 'POST') {
+          return response.json({
+            status: 404,
+            message: 'must send a POST request',
+          });
+        }
+        const favoritesBody = await request.json();
+        const slugs: string[] = favoritesBody.favorites;
+
         if (!panelist) {
           return response.json({
             status: 404,
@@ -250,22 +264,18 @@ export class Fund {
         if (panelist.voted) {
           return response.json({
             status: 403,
-            message: 'You already submitted your ballot',
+            message: 'You already submitted your favorites',
           });
         }
-        const topProjectsIds = url.searchParams.get('top_projects');
 
-        if (!topProjectsIds) {
+        if (!slugs) {
           return response.json({
             status: 403,
             message: 'Must send top_projects in the boddy of the request',
           });
         }
 
-        let projectsIds: string[] = topProjectsIds.split(',');
-        console.log('top projects:', topProjectsIds);
-
-        if (projectsIds.length !== 3) {
+        if (slugs.length !== 3) {
           return response.json({
             status: 403,
             message: 'SCF panelist can only send 3 projects in their ballot',
@@ -274,7 +284,7 @@ export class Fund {
 
         console.log('passed length check');
 
-        if (projectsIds.length !== new Set(projectsIds).size) {
+        if (slugs.length !== new Set(slugs).size) {
           return response.json({
             status: 403,
             message: 'SCF panelist can not repeat projects in their ballot',
@@ -283,8 +293,8 @@ export class Fund {
 
         console.log('passed checks');
 
-        let projectsPromises = projectsIds.map(
-          async (projectId): Promise<Project> => {
+        let projectsPromises = slugs.map(
+          async (projectId: string): Promise<Project> => {
             const PROJECT_KEY = projectKey(projectId);
             return currentProjects.get(PROJECT_KEY) as Project;
           },
@@ -292,17 +302,11 @@ export class Fund {
 
         let projects = await Promise.all(projectsPromises);
 
-        let ballot = projects.reverse().map(async (project, index) => {
+        let favorites = projects.reverse().map(async (project, index) => {
           let score = index + 1;
           let updatedProject: Project = {
+            ...project,
             score: project.score + score,
-            approved_count: project.approved_count,
-            id: project.id,
-            description: project.description,
-            site: project.site,
-            logoUrl: project.logoUrl,
-            name: project.name,
-            slug: project.slug,
           };
 
           const BALLOT_PROJECT_KEY = projectKey(project.id);
@@ -311,9 +315,9 @@ export class Fund {
           await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
         });
 
-        await Promise.all(ballot);
+        await Promise.all(favorites);
         panelist.voted = true;
-        panelist.favorites = projectsIds;
+        panelist.favorites = slugs;
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
@@ -331,7 +335,7 @@ export class Fund {
         const { items }: { items: [] } = results;
         const indexItems = items.map(async (item: any) => {
           let projectId = item['_id'];
-          const INDEX_PROJECT_KEY = projectKey(projectId);
+          const INDEX_PROJECT_KEY = projectKey(item.slug);
 
           let project = currentProjects.get(INDEX_PROJECT_KEY);
           if (!project) {

@@ -14,7 +14,7 @@ export default {
 };
 
 async function handleRequest(request: Request, env: Env) {
-  let id = env.FUND.idFromName('C');
+  let id = env.FUND.idFromName('D');
   let obj = env.FUND.get(id);
   let res = await obj.fetch(request);
   let results = await res.text();
