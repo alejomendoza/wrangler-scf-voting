@@ -271,7 +271,7 @@ export class Fund {
         if (!slugs) {
           return response.json({
             status: 403,
-            message: 'Must send top_projects in the boddy of the request',
+            message: 'Must send slugs in the body of the request',
           });
         }
 
@@ -309,7 +309,7 @@ export class Fund {
             score: project.score + score,
           };
 
-          const BALLOT_PROJECT_KEY = projectKey(project.id);
+          const BALLOT_PROJECT_KEY = projectKey(project.slug);
 
           currentProjects.set(BALLOT_PROJECT_KEY, updatedProject);
           await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
