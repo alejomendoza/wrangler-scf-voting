@@ -124,8 +124,8 @@ export class Fund {
             id: id,
             email: email,
             voted: false,
-            ballot: [],
-            votes: [],
+            favorites: [],
+            approved: [],
             avatar: avatar,
             username: username,
             discriminator: discriminator,
@@ -163,7 +163,7 @@ export class Fund {
           });
         }
 
-        if (!panelist.votes.includes(removeId)) {
+        if (!panelist.approved.includes(removeId)) {
           return response.json({
             status: 403,
             message: 'You have not voted for this project',
@@ -182,7 +182,7 @@ export class Fund {
         currentProjects.set(REMOVE_PROJECT_KEY, removedVoteUpdate);
         await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
 
-        panelist.votes = panelist.votes.filter(vote => vote !== removeId);
+        panelist.approved = panelist.approved.filter(vote => vote !== removeId);
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
@@ -214,7 +214,7 @@ export class Fund {
           });
         }
 
-        if (panelist.votes.includes(projectId)) {
+        if (panelist.approved.includes(projectId)) {
           return response.json({
             status: 403,
             message: 'You already voted for this project',
@@ -233,7 +233,7 @@ export class Fund {
         currentProjects.set(PROJECT_KEY, updatedProject);
         await this.state.storage.put(PROJECT_KEY, updatedProject);
 
-        panelist.votes.push(projectId);
+        panelist.approved.push(projectId);
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
@@ -310,7 +310,7 @@ export class Fund {
 
         await Promise.all(ballot);
         panelist.voted = true;
-        panelist.ballot = projectsIds;
+        panelist.favorites = projectsIds;
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);

@@ -2,8 +2,8 @@ export type Panelist = {
   id: string;
   email: string;
   voted: boolean;
-  ballot: string[];
-  votes: string[];
+  favorites: string[];
+  approved: string[];
   avatar: string;
   username: string;
   discriminator: string;
