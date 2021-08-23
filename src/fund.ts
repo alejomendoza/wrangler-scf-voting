@@ -172,12 +172,13 @@ export class Fund {
 
         let removedVoteUpdate = {
           score: removedVoteProject.score,
-          vote_count: removedVoteProject.vote_count - 1,
+          approved_count: removedVoteProject.approved_count - 1,
           id: removeId as string,
           description: removedVoteProject.description,
           site: removedVoteProject.site,
           logoUrl: removedVoteProject.logoUrl,
           name: removedVoteProject.name,
+          slug: removedVoteProject.slug,
         };
         currentProjects.set(REMOVE_PROJECT_KEY, removedVoteUpdate);
         await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
@@ -223,12 +224,13 @@ export class Fund {
 
         let updatedProject = {
           score: project.score,
-          vote_count: project.vote_count + 1,
+          approved_count: project.approved_count + 1,
           id: projectId as string,
           description: project.description,
           site: project.site,
           logoUrl: project.logoUrl,
           name: project.name,
+          slug: project.slug,
         };
         currentProjects.set(PROJECT_KEY, updatedProject);
         await this.state.storage.put(PROJECT_KEY, updatedProject);
@@ -294,12 +296,13 @@ export class Fund {
           let score = index + 1;
           let updatedProject: Project = {
             score: project.score + score,
-            vote_count: project.vote_count,
+            approved_count: project.approved_count,
             id: project.id,
             description: project.description,
             site: project.site,
             logoUrl: project.logoUrl,
             name: project.name,
+            slug: project.slug,
           };
 
           const BALLOT_PROJECT_KEY = projectKey(project.id);
@@ -334,24 +337,26 @@ export class Fund {
           if (!project) {
             let newProject = {
               score: 0,
-              vote_count: 0,
+              approved_count: 0,
               id: projectId as string,
               description: item['quick-description'],
               name: item.name,
               site: item['customer-interface-if-featured'],
               logoUrl: item.logo.url,
+              slug: item.slug,
             };
             currentProjects.set(INDEX_PROJECT_KEY, newProject);
             await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
           } else {
             let updatedProject = {
               score: project.score,
-              vote_count: project.vote_count,
+              approved_count: project.approved_count,
               id: projectId as string,
               description: item['quick-description'],
               name: item.name,
               site: item['customer-interface-if-featured'],
               logoUrl: item.logo.url,
+              slug: item.slug,
             };
             await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
             await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
@@ -365,7 +370,7 @@ export class Fund {
           projects: Array.from(currentProjects)
             .map(([, project]) => project)
             .sort((a, b) => {
-              return b.vote_count - a.vote_count || b.score - a.score;
+              return b.approved_count - a.approved_count || b.score - a.score;
             }),
         });
       case '/':
@@ -386,7 +391,7 @@ export class Fund {
       projects: Array.from(currentProjects)
         .map(([, project]) => project)
         .sort((a, b) => {
-          return b.vote_count - a.vote_count || b.score - a.score;
+          return b.approved_count - a.approved_count || b.score - a.score;
         }),
     });
   }
