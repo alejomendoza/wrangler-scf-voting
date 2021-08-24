@@ -274,7 +274,7 @@ export class Fund {
         if (!slugs) {
           return response.json({
             status: 403,
-            message: 'Must send slugs in the body of the request',
+            message: 'Must send favorites in the body of the request',
           });
         }
 
