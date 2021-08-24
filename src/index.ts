@@ -14,6 +14,18 @@ export default {
 };
 
 async function handleRequest(request: Request, env: Env) {
+  if (request.method === 'OPTIONS')
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers':
+          'Authorization, Origin, Content-Type, Accept',
+        'Access-Control-Allow-Methods':
+          'GET, PUT, POST, DELETE, PATCH, OPTIONS',
+        'Cache-Control': 'public, max-age=2419200',
+      },
+    });
   let id = env.FUND.idFromName('E');
   let obj = env.FUND.get(id);
   let res = await obj.fetch(request);
