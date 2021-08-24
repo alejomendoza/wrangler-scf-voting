@@ -1,9 +1,14 @@
+export type ProjectInfo = {
+  name: string;
+  slug: string;
+};
+
 export type Panelist = {
   id: string;
   email: string;
   voted: boolean;
-  favorites: string[];
-  approved: string[];
+  favorites: ProjectInfo[];
+  approved: ProjectInfo[];
   avatar: string;
   username: string;
   discriminator: string;

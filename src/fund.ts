@@ -171,7 +171,7 @@ export class Fund {
           });
         }
 
-        if (!panelist.approved.includes(removeSlug)) {
+        if (!panelist.approved.find(info => info.slug === removeSlug)) {
           return response.json({
             status: 403,
             message: 'You have not voted for this project',
@@ -186,7 +186,7 @@ export class Fund {
         await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
 
         panelist.approved = panelist.approved.filter(
-          vote => vote !== removeSlug,
+          vote => vote.slug !== removeSlug,
         );
 
         currentPanelists.set(PANELIST_KEY, panelist);
@@ -226,7 +226,7 @@ export class Fund {
           });
         }
 
-        if (panelist.approved.includes(slug)) {
+        if (panelist.approved.find(info => info.slug === slug)) {
           return response.json({
             status: 403,
             message: 'You already voted for this project',
@@ -240,7 +240,10 @@ export class Fund {
         currentProjects.set(PROJECT_KEY, updatedProject);
         await this.state.storage.put(PROJECT_KEY, updatedProject);
 
-        panelist.approved.push(slug);
+        panelist.approved.push({
+          slug: updatedProject.slug,
+          name: updatedProject.name,
+        });
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
@@ -317,7 +320,10 @@ export class Fund {
 
         await Promise.all(favorites);
         panelist.voted = true;
-        panelist.favorites = slugs;
+        panelist.favorites = projects.reverse().map(project => ({
+          name: project.name,
+          slug: project.slug,
+        }));
 
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
