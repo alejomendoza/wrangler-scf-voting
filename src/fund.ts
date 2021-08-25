@@ -13,6 +13,7 @@ import {
   fetchDiscordGuildMember,
   fetchDiscordUser,
   verifiedRoleId,
+  submitterRoleId,
 } from './discord';
 
 const webflowApi = 'https://api.webflow.com';
@@ -111,6 +112,13 @@ export class Fund {
     //     message: 'Discord user missing required roles',
     //   });
     // }
+
+    if (roles.includes(submitterRoleId)) {
+      return response.json({
+        status: 404,
+        message: 'Discord user is a submitter',
+      });
+    }
 
     console.log('user id: ', id);
 
@@ -301,7 +309,7 @@ export class Fund {
           });
         }
 
-        if (slugs.length !== 3) {
+        if (slugs.length !== 3 && submitting) {
           return response.json({
             status: 403,
             message: 'SCF panelist can only send 3 projects in their ballot',
