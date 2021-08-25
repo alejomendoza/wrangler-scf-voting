@@ -271,6 +271,7 @@ export class Fund {
         }
         const favoritesBody = await request.json();
         const slugs: string[] = favoritesBody.favorites;
+        const submitting: boolean = !!favoritesBody.submitting;
 
         if (!panelist) {
           return response.json({
@@ -333,15 +334,19 @@ export class Fund {
         });
 
         await Promise.all(favorites);
-        panelist.voted = true;
         panelist.favorites = projects.reverse().map(project => ({
           name: project.name,
           slug: project.slug,
         }));
 
+        if (submitting) {
+          panelist.voted = true;
+        }
+
         currentPanelists.set(PANELIST_KEY, panelist);
         await this.state.storage.put(PANELIST_KEY, panelist);
-        break;
+        return response.json(panelist.favorites);
+
       case '/panelists':
         return response.json({
           panelists: Array.from(currentPanelists).map(([, value]) => value),
