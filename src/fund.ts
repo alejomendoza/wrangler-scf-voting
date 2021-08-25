@@ -72,10 +72,12 @@ export class Fund {
     const token = bearer(headers.get('authorization') || '');
 
     if (!token) {
-      return response.json({
-        status: 401,
-        message: 'Missing Authorization header token',
-      });
+      return response.json(
+        {
+          message: 'Missing Authorization header token',
+        },
+        { status: 401 },
+      );
     }
 
     const {
@@ -93,17 +95,21 @@ export class Fund {
     );
 
     if (!id) {
-      return response.json({
-        status: 404,
-        message: 'Failed to authenticate',
-      });
+      return response.json(
+        {
+          message: 'Failed to authenticate',
+        },
+        { status: 404 },
+      );
     }
 
     if (!verified) {
-      return response.json({
-        status: 404,
-        message: 'Discord user missing or the email is unverified',
-      });
+      return response.json(
+        {
+          message: 'Discord user missing or the email is unverified',
+        },
+        { status: 404 },
+      );
     }
 
     // if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
@@ -114,10 +120,12 @@ export class Fund {
     // }
 
     if (roles.includes(submitterRoleId)) {
-      return response.json({
-        status: 404,
-        message: 'Discord user is a submitter',
-      });
+      return response.json(
+        {
+          message: 'Discord user is a submitter',
+        },
+        { status: 404 },
+      );
     }
 
     console.log('user id: ', id);
@@ -147,58 +155,72 @@ export class Fund {
 
       case '/unapprove':
         if (request.method !== 'POST') {
-          return response.json({
-            status: 404,
-            message: 'must send a POST request',
-          });
+          return response.json(
+            {
+              message: 'must send a POST request',
+            },
+            { status: 404 },
+          );
         }
 
         const removeVoteBody = await request.json();
         const removeSlug = removeVoteBody.slug;
 
         if (!panelist) {
-          return response.json({
-            status: 404,
-            message: 'Authenticate as a panelist to vote',
-          });
+          return response.json(
+            {
+              message: 'Authenticate as a panelist to vote',
+            },
+            { status: 404 },
+          );
         }
 
         if (!removeSlug) {
-          return response.json({
-            status: 404,
-            message: 'must send slug as a body param',
-          });
+          return response.json(
+            {
+              message: 'must send slug as a body param',
+            },
+            { status: 404 },
+          );
         }
 
         if (panelist.voted) {
-          return response.json({
-            status: 404,
-            message: 'Votes can not be modified after ballot submission',
-          });
+          return response.json(
+            {
+              message: 'Votes can not be modified after ballot submission',
+            },
+            { status: 404 },
+          );
         }
 
         const REMOVE_PROJECT_KEY = projectKey(removeSlug);
         let removedVoteProject = currentProjects.get(REMOVE_PROJECT_KEY);
         if (!removedVoteProject) {
-          return response.json({
-            status: 404,
-            message: 'project does not exist',
-          });
+          return response.json(
+            {
+              message: 'project does not exist',
+            },
+            { status: 404 },
+          );
         }
 
         if (!panelist.approved.find(info => info.slug === removeSlug)) {
-          return response.json({
-            status: 403,
-            message: 'You have not voted for this project',
-          });
+          return response.json(
+            {
+              message: 'You have not voted for this project',
+            },
+            { status: 403 },
+          );
         }
 
         if (!!panelist.favorites.find(info => info.slug === removeSlug)) {
-          return response.json({
-            status: 403,
-            message:
-              'You can not remove vote of a favorite, remove it from favorites first',
-          });
+          return response.json(
+            {
+              message:
+                'You can not remove vote of a favorite, remove it from favorites first',
+            },
+            { status: 403 },
+          );
         }
 
         let removedVoteUpdate = {
@@ -218,49 +240,61 @@ export class Fund {
 
       case '/approve':
         if (request.method !== 'POST') {
-          return response.json({
-            status: 404,
-            message: 'must send a POST request',
-          });
+          return response.json(
+            {
+              message: 'must send a POST request',
+            },
+            { status: 404 },
+          );
         }
         const addVoteBody = await request.json();
         const slug = addVoteBody.slug;
 
         if (!panelist) {
-          return response.json({
-            status: 404,
-            message: 'Authenticate as a panelist to vote',
-          });
+          return response.json(
+            {
+              message: 'Authenticate as a panelist to vote',
+            },
+            { status: 404 },
+          );
         }
 
         if (panelist.voted) {
-          return response.json({
-            status: 404,
-            message: 'Votes can not be modified after ballot submission',
-          });
+          return response.json(
+            {
+              message: 'Votes can not be modified after ballot submission',
+            },
+            { status: 404 },
+          );
         }
 
         if (!slug) {
-          return response.json({
-            status: 404,
-            message: 'must send slug as a search param',
-          });
+          return response.json(
+            {
+              message: 'must send slug as a search param',
+            },
+            { status: 404 },
+          );
         }
 
         const PROJECT_KEY = projectKey(slug);
         let project = currentProjects.get(PROJECT_KEY);
         if (!project) {
-          return response.json({
-            status: 404,
-            message: 'project does not exist',
-          });
+          return response.json(
+            {
+              message: 'project does not exist',
+            },
+            { status: 404 },
+          );
         }
 
         if (panelist.approved.find(info => info.slug === slug)) {
-          return response.json({
-            status: 403,
-            message: 'You already voted for this project',
-          });
+          return response.json(
+            {
+              message: 'You already voted for this project',
+            },
+            { status: 403 },
+          );
         }
 
         let updatedProject = {
@@ -280,49 +314,61 @@ export class Fund {
         return response.json(updatedProject);
       case '/favorites':
         if (request.method !== 'POST') {
-          return response.json({
-            status: 404,
-            message: 'must send a POST request',
-          });
+          return response.json(
+            {
+              message: 'must send a POST request',
+            },
+            { status: 404 },
+          );
         }
         const favoritesBody = await request.json();
         const slugs: string[] = favoritesBody.favorites;
         const submitting: boolean = !!favoritesBody.submitting;
 
         if (!panelist) {
-          return response.json({
-            status: 404,
-            message: 'Authenticate as a panelist to vote',
-          });
+          return response.json(
+            {
+              message: 'Authenticate as a panelist to vote',
+            },
+            { status: 404 },
+          );
         }
         if (panelist.voted) {
-          return response.json({
-            status: 403,
-            message: 'You already submitted your favorites',
-          });
+          return response.json(
+            {
+              message: 'You already submitted your favorites',
+            },
+            { status: 403 },
+          );
         }
 
         if (!slugs) {
-          return response.json({
-            status: 403,
-            message: 'Must send favorites in the body of the request',
-          });
+          return response.json(
+            {
+              message: 'Must send favorites in the body of the request',
+            },
+            { status: 403 },
+          );
         }
 
         if (slugs.length !== 3 && submitting) {
-          return response.json({
-            status: 403,
-            message: 'SCF panelist can only send 3 projects in their ballot',
-          });
+          return response.json(
+            {
+              message: 'SCF panelist can only send 3 projects in their ballot',
+            },
+            { status: 403 },
+          );
         }
 
         console.log('passed length check');
 
         if (slugs.length !== new Set(slugs).size) {
-          return response.json({
-            status: 403,
-            message: 'SCF panelist can not repeat projects in their ballot',
-          });
+          return response.json(
+            {
+              message: 'SCF panelist can not repeat projects in their ballot',
+            },
+            { status: 403 },
+          );
         }
 
         console.log('passed checks');
