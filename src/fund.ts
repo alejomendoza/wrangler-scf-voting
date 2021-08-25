@@ -185,7 +185,7 @@ export class Fund {
           });
         }
 
-        if (panelist.favorites.find(info => info.slug === removeSlug)) {
+        if (!!panelist.favorites.find(info => info.slug === removeSlug)) {
           return response.json({
             status: 403,
             message:
