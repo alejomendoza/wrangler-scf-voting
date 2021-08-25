@@ -162,6 +162,13 @@ export class Fund {
           });
         }
 
+        if (panelist.voted) {
+          return response.json({
+            status: 404,
+            message: 'Votes can not be modified after ballot submission',
+          });
+        }
+
         const REMOVE_PROJECT_KEY = projectKey(removeSlug);
         let removedVoteProject = currentProjects.get(REMOVE_PROJECT_KEY);
         if (!removedVoteProject) {
@@ -207,6 +214,13 @@ export class Fund {
           return response.json({
             status: 404,
             message: 'Authenticate as a panelist to vote',
+          });
+        }
+
+        if (panelist.voted) {
+          return response.json({
+            status: 404,
+            message: 'Votes can not be modified after ballot submission',
           });
         }
 
