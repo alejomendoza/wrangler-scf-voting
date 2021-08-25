@@ -185,6 +185,14 @@ export class Fund {
           });
         }
 
+        if (panelist.favorites.find(info => info.slug === removeSlug)) {
+          return response.json({
+            status: 403,
+            message:
+              'You can not remove vote of a favorite, remove it from favorites first',
+          });
+        }
+
         let removedVoteUpdate = {
           ...removedVoteProject,
           approved_count: removedVoteProject.approved_count - 1,
@@ -320,27 +328,33 @@ export class Fund {
 
         let projects = await Promise.all(projectsPromises);
 
-        let favorites = projects.reverse().map(async (project, index) => {
-          let score = index + 1;
-          let updatedProject: Project = {
-            ...project,
-            score: project.score + score,
-          };
-
-          const BALLOT_PROJECT_KEY = projectKey(project.slug);
-
-          currentProjects.set(BALLOT_PROJECT_KEY, updatedProject);
-          await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
-        });
-
-        await Promise.all(favorites);
-        panelist.favorites = projects.reverse().map(project => ({
-          name: project.name,
-          slug: project.slug,
-        }));
-
         if (submitting) {
+          let favorites = projects.reverse().map(async (project, index) => {
+            let score = index + 1;
+            let updatedProject: Project = {
+              ...project,
+              score: project.score + score,
+            };
+
+            const BALLOT_PROJECT_KEY = projectKey(project.slug);
+
+            currentProjects.set(BALLOT_PROJECT_KEY, updatedProject);
+            await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
+          });
+
+          await Promise.all(favorites);
+
           panelist.voted = true;
+
+          panelist.favorites = projects.reverse().map(project => ({
+            name: project.name,
+            slug: project.slug,
+          }));
+        } else {
+          panelist.favorites = projects.map(project => ({
+            name: project.name,
+            slug: project.slug,
+          }));
         }
 
         currentPanelists.set(PANELIST_KEY, panelist);
