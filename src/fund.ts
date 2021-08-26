@@ -106,7 +106,7 @@ export class Fund {
     if (!verified) {
       return response.json(
         {
-          message: 'Discord user missing or the email is unverified',
+          message: 'Your Discord email is unverified',
         },
         { status: 404 },
       );
