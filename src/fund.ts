@@ -214,12 +214,8 @@ export class Fund {
         }
 
         if (!!panelist.favorites.find(info => info.slug === removeSlug)) {
-          return response.json(
-            {
-              message:
-                'You can not remove vote of a favorite, remove it from favorites first',
-            },
-            { status: 403 },
+          panelist.favorites = panelist.favorites.filter(
+            vote => vote.slug !== removeSlug,
           );
         }
 
