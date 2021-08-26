@@ -12,4 +12,5 @@ export type Panelist = {
   avatar: string;
   username: string;
   discriminator: string;
+  role: 'verified' | 'admin';
 };

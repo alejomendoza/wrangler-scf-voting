@@ -112,17 +112,19 @@ export class Fund {
       );
     }
 
-    // if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
-    //   return response.json({
-    //     status: 404,
-    //     message: 'Discord user missing required roles',
-    //   });
-    // }
+    if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
+      return response.json({
+        status: 404,
+        message:
+          'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.',
+      });
+    }
 
     if (roles.includes(submitterRoleId)) {
       return response.json(
         {
-          message: 'Discord user is a submitter',
+          message:
+            'You are ineligible to vote because you have submitted a project for this round.',
         },
         { status: 404 },
       );
@@ -145,6 +147,7 @@ export class Fund {
             avatar: avatar,
             username: username,
             discriminator: discriminator,
+            role: roles.includes(adminRoleId) ? 'admin' : 'verified',
           };
           currentPanelists.set(PANELIST_KEY, newPanelist);
           await this.state.storage.put(PANELIST_KEY, newPanelist);
