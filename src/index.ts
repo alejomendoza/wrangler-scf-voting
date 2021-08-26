@@ -26,7 +26,7 @@ async function handleRequest(request: Request, env: Env) {
         'Cache-Control': 'public, max-age=2419200',
       },
     });
-  let id = env.FUND.idFromName('I');
+  let id = env.FUND.idFromName('AA');
   let obj = env.FUND.get(id);
   let res = await obj.fetch(request);
   return res;
@@ -35,3 +35,5 @@ async function handleRequest(request: Request, env: Env) {
 interface Env {
   FUND: DurableObjectNamespace;
 }
+
+
