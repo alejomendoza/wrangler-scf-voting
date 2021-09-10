@@ -17,7 +17,7 @@ import {
 } from './discord';
 
 const webflowApi = 'https://api.webflow.com';
-const collectionId = '610418d70a84c9d77ceaaee3';
+const collectionId = '60c22d2ffa1ee25f2edbc83a';
 
 export class Fund {
   projects: Map<string, Project> = new Map([]);
@@ -89,7 +89,7 @@ export class Fund {
       discriminator,
     } = await fetchDiscordUser(token);
 
-    const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
+    let { roles }: { roles: string[] } = await fetchDiscordGuildMember(
       id,
       this.env.BOT_TOKEN,
     );
@@ -112,12 +112,18 @@ export class Fund {
       );
     }
 
-    if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
-      return response.json({
-        status: 404,
-        message:
-          'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.',
-      });
+    // if (id === '434388126396317698') {
+    //   roles = [adminRoleId, verifiedRoleId];
+    // }
+
+    if (!roles.includes(verifiedRoleId)) {
+      return response.json(
+        {
+          message:
+            'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.',
+        },
+        { status: 404 },
+      );
     }
 
     if (roles.includes(submitterRoleId)) {
@@ -151,10 +157,14 @@ export class Fund {
           };
           currentPanelists.set(PANELIST_KEY, newPanelist);
           await this.state.storage.put(PANELIST_KEY, newPanelist);
-          return response.json(newPanelist);
+          return response.json(newPanelist, {
+            headers: { 'Cache-Control': 'no-store' },
+          });
         }
 
-        return response.json(panelist);
+        return response.json(panelist, {
+          headers: { 'Cache-Control': 'no-store' },
+        });
 
       case '/unapprove':
         if (request.method !== 'POST') {
@@ -418,6 +428,23 @@ export class Fund {
         return response.json({
           panelists: Array.from(currentPanelists).map(([, value]) => value),
         });
+      case '/remove-panelist':
+        if (request.method !== 'POST') {
+          return response.json(
+            {
+              message: 'must send a POST request',
+            },
+            { status: 404 },
+          );
+        }
+        const removePanelistBody = await request.json();
+        const removePanelistId: string = removePanelistBody.panelist;
+        const REMOVE_PANELIST_KEY = panelistKey(removePanelistId);
+        currentPanelists.delete(REMOVE_PANELIST_KEY);
+        await this.state.storage.delete(REMOVE_PANELIST_KEY);
+        return response.json({
+          panelists: Array.from(currentPanelists).map(([, value]) => value),
+        });
       case '/sync-projects':
         const res = await fetch(
           `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
@@ -438,7 +465,7 @@ export class Fund {
               description: item['quick-description'],
               name: item.name,
               site: item['customer-interface-if-featured'],
-              logoUrl: item.logo.url,
+              logoUrl: item.logo ? item.logo.url : '',
               slug: item.slug,
             };
             currentProjects.set(INDEX_PROJECT_KEY, newProject);
