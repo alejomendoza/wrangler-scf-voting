@@ -17,7 +17,8 @@ import {
 } from './discord';
 
 const webflowApi = 'https://api.webflow.com';
-const collectionId = '60c22d2ffa1ee25f2edbc83a';
+const collectionId = '6140c98a2150313e964bdfe1';
+const roundId = '824970ac6f2a9e2c940b05ad07cef4ac';
 
 export class Fund {
   projects: Map<string, Project> = new Map([]);
@@ -111,10 +112,6 @@ export class Fund {
         { status: 404 },
       );
     }
-
-    // if (id === '434388126396317698') {
-    //   roles = [adminRoleId, verifiedRoleId];
-    // }
 
     if (!roles.includes(verifiedRoleId)) {
       return response.json(
@@ -446,45 +443,52 @@ export class Fund {
           panelists: Array.from(currentPanelists).map(([, value]) => value),
         });
       case '/sync-projects':
-        const res = await fetch(
-          `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
-        );
+        let res: any;
+        try {
+          res = await fetch(
+            `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
+          );
+        } catch (e) {
+          console.log('error', e);
+        }
         const results = await res.json();
 
         const { items }: { items: [] } = results;
-        const indexItems = items.map(async (item: any) => {
-          let projectId = item['_id'];
-          const INDEX_PROJECT_KEY = projectKey(item.slug);
+        const indexItems = items
+          .filter((result: any) => result.round === roundId)
+          .map(async (item: any) => {
+            let projectId = item['_id'];
+            const INDEX_PROJECT_KEY = projectKey(item.slug);
 
-          let project = currentProjects.get(INDEX_PROJECT_KEY);
-          if (!project) {
-            let newProject = {
-              score: 0,
-              approved_count: 0,
-              id: projectId as string,
-              description: item['quick-description'],
-              name: item.name,
-              site: item['customer-interface-if-featured'],
-              logoUrl: item.logo ? item.logo.url : '',
-              slug: item.slug,
-            };
-            currentProjects.set(INDEX_PROJECT_KEY, newProject);
-            await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
-          } else {
-            let updatedProject = {
-              score: project.score,
-              approved_count: project.approved_count,
-              id: projectId as string,
-              description: item['quick-description'],
-              name: item.name,
-              site: item['customer-interface-if-featured'],
-              logoUrl: item.logo.url,
-              slug: item.slug,
-            };
-            await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
-            await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
-          }
-        });
+            let project = currentProjects.get(INDEX_PROJECT_KEY);
+            if (!project) {
+              let newProject = {
+                score: 0,
+                approved_count: 0,
+                id: projectId as string,
+                description: item['quick-description'],
+                name: item.name,
+                site: item['customer-interface-if-featured'],
+                logoUrl: item.logo ? item.logo.url : '',
+                slug: item.slug,
+              };
+              currentProjects.set(INDEX_PROJECT_KEY, newProject);
+              await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
+            } else {
+              let updatedProject = {
+                score: project.score,
+                approved_count: project.approved_count,
+                id: projectId as string,
+                description: item['quick-description'],
+                name: item.name,
+                site: item['customer-interface-if-featured'],
+                logoUrl: item.logo.url,
+                slug: item.slug,
+              };
+              await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
+              await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
+            }
+          });
 
         await Promise.all(indexItems);
 
