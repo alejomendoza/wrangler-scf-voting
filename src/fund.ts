@@ -17,7 +17,8 @@ import {
 } from './discord';
 
 const webflowApi = 'https://api.webflow.com';
-const collectionId = '610418d70a84c9d77ceaaee3';
+const collectionId = '6140c98a2150313e964bdfe1';
+const roundId = '824970ac6f2a9e2c940b05ad07cef4ac';
 
 export class Fund {
   projects: Map<string, Project> = new Map([]);
@@ -89,7 +90,7 @@ export class Fund {
       discriminator,
     } = await fetchDiscordUser(token);
 
-    const { roles }: { roles: string[] } = await fetchDiscordGuildMember(
+    let { roles }: { roles: string[] } = await fetchDiscordGuildMember(
       id,
       this.env.BOT_TOKEN,
     );
@@ -106,23 +107,27 @@ export class Fund {
     if (!verified) {
       return response.json(
         {
-          message: 'Discord user missing or the email is unverified',
+          message: 'Your Discord email is unverified',
         },
         { status: 404 },
       );
     }
 
-    // if (!roles.includes(verifiedRoleId) || !roles.includes(adminRoleId)) {
-    //   return response.json({
-    //     status: 404,
-    //     message: 'Discord user missing required roles',
-    //   });
-    // }
+    if (!roles.includes(verifiedRoleId)) {
+      return response.json(
+        {
+          message:
+            'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.',
+        },
+        { status: 404 },
+      );
+    }
 
     if (roles.includes(submitterRoleId)) {
       return response.json(
         {
-          message: 'Discord user is a submitter',
+          message:
+            'You are ineligible to vote because you have submitted a project for this round.',
         },
         { status: 404 },
       );
@@ -145,13 +150,18 @@ export class Fund {
             avatar: avatar,
             username: username,
             discriminator: discriminator,
+            role: roles.includes(adminRoleId) ? 'admin' : 'verified',
           };
           currentPanelists.set(PANELIST_KEY, newPanelist);
           await this.state.storage.put(PANELIST_KEY, newPanelist);
-          return response.json(newPanelist);
+          return response.json(newPanelist, {
+            headers: { 'Cache-Control': 'no-store' },
+          });
         }
 
-        return response.json(panelist);
+        return response.json(panelist, {
+          headers: { 'Cache-Control': 'no-store' },
+        });
 
       case '/unapprove':
         if (request.method !== 'POST') {
@@ -214,12 +224,8 @@ export class Fund {
         }
 
         if (!!panelist.favorites.find(info => info.slug === removeSlug)) {
-          return response.json(
-            {
-              message:
-                'You can not remove vote of a favorite, remove it from favorites first',
-            },
-            { status: 403 },
+          panelist.favorites = panelist.favorites.filter(
+            vote => vote.slug !== removeSlug,
           );
         }
 
@@ -419,46 +425,70 @@ export class Fund {
         return response.json({
           panelists: Array.from(currentPanelists).map(([, value]) => value),
         });
+      case '/remove-panelist':
+        if (request.method !== 'POST') {
+          return response.json(
+            {
+              message: 'must send a POST request',
+            },
+            { status: 404 },
+          );
+        }
+        const removePanelistBody = await request.json();
+        const removePanelistId: string = removePanelistBody.panelist;
+        const REMOVE_PANELIST_KEY = panelistKey(removePanelistId);
+        currentPanelists.delete(REMOVE_PANELIST_KEY);
+        await this.state.storage.delete(REMOVE_PANELIST_KEY);
+        return response.json({
+          panelists: Array.from(currentPanelists).map(([, value]) => value),
+        });
       case '/sync-projects':
-        const res = await fetch(
-          `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
-        );
+        let res: any;
+        try {
+          res = await fetch(
+            `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
+          );
+        } catch (e) {
+          console.log('error', e);
+        }
         const results = await res.json();
 
         const { items }: { items: [] } = results;
-        const indexItems = items.map(async (item: any) => {
-          let projectId = item['_id'];
-          const INDEX_PROJECT_KEY = projectKey(item.slug);
+        const indexItems = items
+          .filter((result: any) => result.round === roundId)
+          .map(async (item: any) => {
+            let projectId = item['_id'];
+            const INDEX_PROJECT_KEY = projectKey(item.slug);
 
-          let project = currentProjects.get(INDEX_PROJECT_KEY);
-          if (!project) {
-            let newProject = {
-              score: 0,
-              approved_count: 0,
-              id: projectId as string,
-              description: item['quick-description'],
-              name: item.name,
-              site: item['customer-interface-if-featured'],
-              logoUrl: item.logo.url,
-              slug: item.slug,
-            };
-            currentProjects.set(INDEX_PROJECT_KEY, newProject);
-            await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
-          } else {
-            let updatedProject = {
-              score: project.score,
-              approved_count: project.approved_count,
-              id: projectId as string,
-              description: item['quick-description'],
-              name: item.name,
-              site: item['customer-interface-if-featured'],
-              logoUrl: item.logo.url,
-              slug: item.slug,
-            };
-            await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
-            await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
-          }
-        });
+            let project = currentProjects.get(INDEX_PROJECT_KEY);
+            if (!project) {
+              let newProject = {
+                score: 0,
+                approved_count: 0,
+                id: projectId as string,
+                description: item['quick-description'],
+                name: item.name,
+                site: item['customer-interface-if-featured'],
+                logoUrl: item.logo ? item.logo.url : '',
+                slug: item.slug,
+              };
+              currentProjects.set(INDEX_PROJECT_KEY, newProject);
+              await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
+            } else {
+              let updatedProject = {
+                score: project.score,
+                approved_count: project.approved_count,
+                id: projectId as string,
+                description: item['quick-description'],
+                name: item.name,
+                site: item['customer-interface-if-featured'],
+                logoUrl: item.logo.url,
+                slug: item.slug,
+              };
+              await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
+              await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
+            }
+          });
 
         await Promise.all(indexItems);
 
