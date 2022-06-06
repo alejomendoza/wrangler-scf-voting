@@ -1,5 +1,3 @@
-import { Project } from './types/project';
-import { Panelist } from './types/panelist';
 import { response } from 'cfw-easy-utils';
 import {
   panelistKey,
@@ -90,10 +88,7 @@ export class Fund {
       discriminator,
     } = await fetchDiscordUser(token);
 
-    let { roles }: { roles: string[] } = await fetchDiscordGuildMember(
-      id,
-      this.env.BOT_TOKEN,
-    );
+    let { roles } = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
 
     if (!id) {
       return response.json(

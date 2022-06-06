@@ -9,7 +9,7 @@ export const adminRoleId = '845026552286937119';
 export const verifiedRoleId = '831189270344630293';
 export const submitterRoleId = '879828995833724948';
 
-export async function fetchDiscordUser(token: string) {
+export async function fetchDiscordUser(token: string): Promise<DiscordUser> {
   return await fetch(discordUserUrl, {
     cf: {
       cacheTtlByStatus: { '200-299': 300 },
@@ -20,7 +20,10 @@ export async function fetchDiscordUser(token: string) {
   }).then(handleResponse);
 }
 
-export async function fetchDiscordGuildMember(id: string, botToken: string) {
+export async function fetchDiscordGuildMember(
+  id: string,
+  botToken: string,
+): Promise<GuildMember> {
   return await fetch(`${discordServerUrl}/members/${id}`, {
     headers: {
       Authorization: `Bot ${botToken}`,
