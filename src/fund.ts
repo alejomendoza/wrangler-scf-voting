@@ -68,11 +68,13 @@ export class Fund {
       );
     }
 
-    const { id } = await fetchDiscordUser(token);
+    const user = await fetchDiscordUser(token);
+    const { id } = user;
+
     const guildMember = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
 
     try {
-      validateUser(guildMember);
+      validateUser(user, guildMember);
     } catch (e) {
       return parseError(e);
     }
@@ -80,7 +82,7 @@ export class Fund {
     const PANELIST_KEY = panelistKey(id);
 
     let panelist = currentPanelists.get(PANELIST_KEY);
-    if (!panelist) panelist = await this.createPanelist(guildMember);
+    if (!panelist) panelist = await this.createPanelist(user, guildMember);
 
     let body: any = {};
 
@@ -125,30 +127,30 @@ export class Fund {
 
         const slugs: string[] = body.favorites;
 
-        const newFavorites = this.updateFavorites(id, slugs);
+        const newFavorites = await this.updateFavorites(id, slugs);
         return response.json(newFavorites);
 
-      case '/panelists':
+      case 'GET /panelists':
         return response.json({
-          panelists: Array.from(currentPanelists).map(([, value]) => value),
+          panelists: Array.from(this.panelists.values()),
         });
-      case '/remove-panelist':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
-        const removePanelistBody = await request.json();
-        const removePanelistId: string = removePanelistBody.panelist;
-        const REMOVE_PANELIST_KEY = panelistKey(removePanelistId);
-        currentPanelists.delete(REMOVE_PANELIST_KEY);
-        await this.state.storage.delete(REMOVE_PANELIST_KEY);
+
+      case 'POST /remove-panelist':
+        if (!body.panelist) throw 'Panelist id is missing.';
+        if (!panelist.isAdmin) throw 'Must be admin to delete panelist.';
+        await this.deletePanelist(body.panelist);
+
         return response.json({
-          panelists: Array.from(currentPanelists).map(([, value]) => value),
+          panelists: Array.from(this.panelists.values()),
         });
+
+      case 'GET /projects':
+        if (!panelist.isAdmin) throw 'Must be admin to get projects.';
+
+        return response.json({
+          projects: Array.from(this.projects.values()),
+        });
+
       case '/sync-projects':
         let res: any;
         try {
@@ -199,14 +201,6 @@ export class Fund {
 
         await Promise.all(indexItems);
 
-      case '/projects':
-        return response.json({
-          projects: Array.from(currentProjects)
-            .map(([, project]) => project)
-            .sort((a, b) => {
-              return b.approved_count - a.approved_count || b.score - a.score;
-            }),
-        });
       case '/':
         break;
       default:
@@ -230,12 +224,11 @@ export class Fund {
     });
   }
 
-  async createPanelist(discordMember: GuildMember) {
-    const { user, roles } = discordMember;
+  async createPanelist(user: DiscordUser, discordMember: GuildMember) {
+    const { roles } = discordMember;
 
-    if (!user) throw 'User not found.';
-
-    const isAdmin = roles.includes(adminRoleId);
+    const admins = JSON.parse(this.env.ADMINS);
+    const isAdmin = roles.includes(adminRoleId) || admins.includes(user.id);
 
     const panelist: Panelist = {
       ...user,
@@ -251,6 +244,18 @@ export class Fund {
     await this.state.storage.put(PANELIST_KEY, panelist);
 
     return panelist;
+  }
+
+  async deletePanelist(userId: string) {
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    this.panelists.delete(PANELIST_KEY);
+    await this.state.storage.delete(PANELIST_KEY);
+
+    return this.panelists;
   }
 
   async approveProject(userId: string, slug: string) {
@@ -271,6 +276,9 @@ export class Fund {
     panelist.approved.push({ slug, name: project.name });
 
     project.approved_count++;
+
+    await this.state.storage.put(PANELIST_KEY, panelist);
+    await this.state.storage.put(PROJECT_KEY, project);
   }
 
   async unapproveProject(userId: string, slug: string) {
@@ -321,7 +329,7 @@ export class Fund {
 
     panelist.favorites = favoriteProjects;
 
-    this.state.storage.put(PANELIST_KEY, panelist);
+    await this.state.storage.put(PANELIST_KEY, panelist);
 
     return panelist.favorites;
   }
@@ -367,13 +375,11 @@ export class Fund {
 interface Env {
   WEBFLOW_API_KEY: string;
   BOT_TOKEN: string;
+  ADMINS: string;
 }
 
-const validateUser = (guildMember: GuildMember) => {
-  const { user, roles } = guildMember;
-
-  if (!user) throw 'User not found.';
-
+const validateUser = (user: DiscordUser, guildMember: GuildMember) => {
+  const { roles } = guildMember;
   const { id, verified } = user;
 
   if (!id) throw 'Your Discord email is unverified';

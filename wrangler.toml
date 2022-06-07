@@ -14,3 +14,4 @@ new_classes = ["Fund"]
 # [secrets]
 # BOT_TOKEN
 # WEBFLOW_API_KEY
+# ADMINS
