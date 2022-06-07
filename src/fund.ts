@@ -6,6 +6,7 @@ import {
   PROJECTS_PREFIX,
 } from './prefix';
 import { bearer } from '@borderless/parse-authorization';
+import { parseError } from './parse/parse';
 import {
   adminRoleId,
   fetchDiscordGuildMember,
@@ -19,54 +20,42 @@ const collectionId = '6140c98a2150313e964bdfe1';
 const roundId = '824970ac6f2a9e2c940b05ad07cef4ac';
 
 export class Fund {
-  projects: Map<string, Project> = new Map([]);
-  panelists: Map<string, Panelist> = new Map([]);
-
   state: DurableObjectState;
   env: Env;
 
-  initializePromise: Promise<void> | undefined;
+  projects: Map<string, Project> = new Map([]);
+  panelists: Map<string, Panelist> = new Map([]);
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
+
+    this.state.blockConcurrencyWhile(async () => {
+      await this.initialize();
+    });
   }
 
   async initialize() {
-    let [projects, panelists] = [
-      await this.state.storage.list<Project>({ prefix: PROJECTS_PREFIX }),
-      await this.state.storage.list<Panelist>({ prefix: PANELISTS_PREFIX }),
+    const [projects, panelists] = [
+      await this.state.storage.list<Project>({
+        prefix: PROJECTS_PREFIX,
+      }),
+      await this.state.storage.list<Panelist>({
+        prefix: PANELISTS_PREFIX,
+      }),
     ];
 
-    if (projects) {
-      this.projects = projects;
-    }
-    if (panelists) {
-      this.panelists = panelists;
-    }
+    if (projects) this.projects = projects;
+    if (panelists) this.panelists = panelists;
   }
 
   // Handle HTTP requests from clients.
   async fetch(request: Request) {
-    // Make sure we're fully initialized from storage.
-    if (!this.initializePromise) {
-      this.initializePromise = this.initialize().catch(err => {
-        // If anything throws during initialization then we need to be
-        // sure sure that a future request will retry initialize().
-        // Note that the concurrency involved in resetting this shared
-        // promise on an error can be tricky to get right -- we don't
-        // recommend customizing it.
-        this.initializePromise = undefined;
-        throw err;
-      });
-    }
-    await this.initializePromise;
-
     let url = new URL(request.url);
-    let { pathname } = url;
 
-    let currentProjects = this.projects;
-    let currentPanelists = this.panelists;
+    const currentProjects = this.projects;
+    const currentPanelists = this.panelists;
+
     const headers = new Map(request.headers);
     const token = bearer(headers.get('authorization') || '');
 
@@ -79,342 +68,65 @@ export class Fund {
       );
     }
 
-    const {
-      id,
-      email,
-      verified,
-      avatar,
-      username,
-      discriminator,
-    } = await fetchDiscordUser(token);
+    const { id } = await fetchDiscordUser(token);
+    const guildMember = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
 
-    let { roles } = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
-
-    if (!id) {
-      return response.json(
-        {
-          message: 'Failed to authenticate',
-        },
-        { status: 404 },
-      );
+    try {
+      validateUser(guildMember);
+    } catch (e) {
+      return parseError(e);
     }
-
-    if (!verified) {
-      return response.json(
-        {
-          message: 'Your Discord email is unverified',
-        },
-        { status: 404 },
-      );
-    }
-
-    if (!roles.includes(verifiedRoleId)) {
-      return response.json(
-        {
-          message:
-            'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.',
-        },
-        { status: 404 },
-      );
-    }
-
-    if (roles.includes(submitterRoleId)) {
-      return response.json(
-        {
-          message:
-            'You are ineligible to vote because you have submitted a project for this round.',
-        },
-        { status: 404 },
-      );
-    }
-
-    console.log('user id: ', id);
 
     const PANELIST_KEY = panelistKey(id);
-    let panelist = await currentPanelists.get(PANELIST_KEY);
 
-    switch (pathname) {
-      case '/auth':
-        if (!panelist) {
-          const newPanelist: Panelist = {
-            id: id,
-            email: email,
-            voted: false,
-            favorites: [],
-            approved: [],
-            avatar: avatar,
-            username: username,
-            discriminator: discriminator,
-            role: roles.includes(adminRoleId) ? 'admin' : 'verified',
-          };
-          currentPanelists.set(PANELIST_KEY, newPanelist);
-          await this.state.storage.put(PANELIST_KEY, newPanelist);
-          return response.json(newPanelist, {
-            headers: { 'Cache-Control': 'no-store' },
-          });
-        }
+    let panelist = currentPanelists.get(PANELIST_KEY);
+    if (!panelist) panelist = await this.createPanelist(guildMember);
 
+    let body: any = {};
+
+    if (request.method === 'POST') {
+      try {
+        body = JSON.parse(await request.text());
+      } catch (err) {
+        body = {};
+      }
+    }
+
+    switch (`${request.method} ${url.pathname}`) {
+      case 'GET /auth':
         return response.json(panelist, {
           headers: { 'Cache-Control': 'no-store' },
         });
 
-      case '/unapprove':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
+      case 'POST /approve':
+        if (!body.slug) throw 'Slug is missing.';
+        if (panelist.voted) throw 'Panelist already voted.';
 
-        const removeVoteBody = await request.json();
-        const removeSlug = removeVoteBody.slug;
+        this.approveProject(id, body.slug);
+        return response.json();
 
-        if (!panelist) {
-          return response.json(
-            {
-              message: 'Authenticate as a panelist to vote',
-            },
-            { status: 404 },
-          );
-        }
+      case 'POST /unapprove':
+        if (!body.slug) throw 'Slug is missing.';
+        if (panelist.voted) throw 'Panelist already voted.';
 
-        if (!removeSlug) {
-          return response.json(
-            {
-              message: 'must send slug as a body param',
-            },
-            { status: 404 },
-          );
-        }
+        this.unapproveProject(id, body.slug);
+        return response.json();
 
-        if (panelist.voted) {
-          return response.json(
-            {
-              message: 'Votes can not be modified after ballot submission',
-            },
-            { status: 404 },
-          );
-        }
+      case 'POST /submit':
+        if (!body.favorites) throw 'Favorites are missing.';
+        if (panelist.voted) throw 'Panelist already voted.';
 
-        const REMOVE_PROJECT_KEY = projectKey(removeSlug);
-        let removedVoteProject = currentProjects.get(REMOVE_PROJECT_KEY);
-        if (!removedVoteProject) {
-          return response.json(
-            {
-              message: 'project does not exist',
-            },
-            { status: 404 },
-          );
-        }
+        const submittedProjects = this.submitVote(id);
+        return response.json(submittedProjects);
 
-        if (!panelist.approved.find(info => info.slug === removeSlug)) {
-          return response.json(
-            {
-              message: 'You have not voted for this project',
-            },
-            { status: 403 },
-          );
-        }
+      case 'POST /favorites':
+        if (!body.favorites) throw 'Favorites are missing.';
+        if (panelist.voted) throw 'Panelist already voted.';
 
-        if (!!panelist.favorites.find(info => info.slug === removeSlug)) {
-          panelist.favorites = panelist.favorites.filter(
-            vote => vote.slug !== removeSlug,
-          );
-        }
+        const slugs: string[] = body.favorites;
 
-        let removedVoteUpdate = {
-          ...removedVoteProject,
-          approved_count: removedVoteProject.approved_count - 1,
-        };
-        currentProjects.set(REMOVE_PROJECT_KEY, removedVoteUpdate);
-        await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
-
-        panelist.approved = panelist.approved.filter(
-          vote => vote.slug !== removeSlug,
-        );
-
-        currentPanelists.set(PANELIST_KEY, panelist);
-        await this.state.storage.put(PANELIST_KEY, panelist);
-        return response.json(removedVoteUpdate);
-
-      case '/approve':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
-        const addVoteBody = await request.json();
-        const slug = addVoteBody.slug;
-
-        if (!panelist) {
-          return response.json(
-            {
-              message: 'Authenticate as a panelist to vote',
-            },
-            { status: 404 },
-          );
-        }
-
-        if (panelist.voted) {
-          return response.json(
-            {
-              message: 'Votes can not be modified after ballot submission',
-            },
-            { status: 404 },
-          );
-        }
-
-        if (!slug) {
-          return response.json(
-            {
-              message: 'must send slug as a search param',
-            },
-            { status: 404 },
-          );
-        }
-
-        const PROJECT_KEY = projectKey(slug);
-        let project = currentProjects.get(PROJECT_KEY);
-        if (!project) {
-          return response.json(
-            {
-              message: 'project does not exist',
-            },
-            { status: 404 },
-          );
-        }
-
-        if (panelist.approved.find(info => info.slug === slug)) {
-          return response.json(
-            {
-              message: 'You already voted for this project',
-            },
-            { status: 403 },
-          );
-        }
-
-        let updatedProject = {
-          ...project,
-          approved_count: project.approved_count + 1,
-        };
-        currentProjects.set(PROJECT_KEY, updatedProject);
-        await this.state.storage.put(PROJECT_KEY, updatedProject);
-
-        panelist.approved.push({
-          slug: updatedProject.slug,
-          name: updatedProject.name,
-        });
-
-        currentPanelists.set(PANELIST_KEY, panelist);
-        await this.state.storage.put(PANELIST_KEY, panelist);
-        return response.json(updatedProject);
-      case '/favorites':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
-        const favoritesBody = await request.json();
-        const slugs: string[] = favoritesBody.favorites;
-        const submitting: boolean = !!favoritesBody.submitting;
-
-        if (!panelist) {
-          return response.json(
-            {
-              message: 'Authenticate as a panelist to vote',
-            },
-            { status: 404 },
-          );
-        }
-        if (panelist.voted) {
-          return response.json(
-            {
-              message: 'You already submitted your favorites',
-            },
-            { status: 403 },
-          );
-        }
-
-        if (!slugs) {
-          return response.json(
-            {
-              message: 'Must send favorites in the body of the request',
-            },
-            { status: 403 },
-          );
-        }
-
-        if (slugs.length !== 3 && submitting) {
-          return response.json(
-            {
-              message: 'SCF panelist can only send 3 projects in their ballot',
-            },
-            { status: 403 },
-          );
-        }
-
-        console.log('passed length check');
-
-        if (slugs.length !== new Set(slugs).size) {
-          return response.json(
-            {
-              message: 'SCF panelist can not repeat projects in their ballot',
-            },
-            { status: 403 },
-          );
-        }
-
-        console.log('passed checks');
-
-        let projectsPromises = slugs.map(
-          async (projectId: string): Promise<Project> => {
-            const PROJECT_KEY = projectKey(projectId);
-            return currentProjects.get(PROJECT_KEY) as Project;
-          },
-        );
-
-        let projects = await Promise.all(projectsPromises);
-
-        if (submitting) {
-          let favorites = projects.reverse().map(async (project, index) => {
-            let score = index + 1;
-            let updatedProject: Project = {
-              ...project,
-              score: project.score + score,
-            };
-
-            const BALLOT_PROJECT_KEY = projectKey(project.slug);
-
-            currentProjects.set(BALLOT_PROJECT_KEY, updatedProject);
-            await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
-          });
-
-          await Promise.all(favorites);
-
-          panelist.voted = true;
-
-          panelist.favorites = projects.reverse().map(project => ({
-            name: project.name,
-            slug: project.slug,
-          }));
-        } else {
-          panelist.favorites = projects.map(project => ({
-            name: project.name,
-            slug: project.slug,
-          }));
-        }
-
-        currentPanelists.set(PANELIST_KEY, panelist);
-        await this.state.storage.put(PANELIST_KEY, panelist);
-        return response.json(panelist.favorites);
+        const newFavorites = this.updateFavorites(id, slugs);
+        return response.json(newFavorites);
 
       case '/panelists':
         return response.json({
@@ -517,9 +229,160 @@ export class Fund {
         }),
     });
   }
+
+  async createPanelist(discordMember: GuildMember) {
+    const { user, roles } = discordMember;
+
+    if (!user) throw 'User not found.';
+
+    const isAdmin = roles.includes(adminRoleId);
+
+    const panelist: Panelist = {
+      ...user,
+      voted: false,
+      favorites: [],
+      approved: [],
+      isAdmin,
+    };
+
+    const PANELIST_KEY = panelistKey(user.id);
+
+    this.panelists.set(PANELIST_KEY, panelist);
+    await this.state.storage.put(PANELIST_KEY, panelist);
+
+    return panelist;
+  }
+
+  async approveProject(userId: string, slug: string) {
+    const PROJECT_KEY = projectKey(slug);
+    const project = this.projects.get(PROJECT_KEY);
+
+    if (!project) throw 'Project does not exist.';
+
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    panelist.approved = panelist.approved.filter(
+      project => project.slug !== slug,
+    );
+
+    panelist.approved.push({ slug, name: project.name });
+
+    project.approved_count++;
+  }
+
+  async unapproveProject(userId: string, slug: string) {
+    const PROJECT_KEY = projectKey(slug);
+    const project = this.projects.get(PROJECT_KEY);
+
+    if (!project) throw 'Project does not exist.';
+
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    panelist.approved = panelist.approved.filter(
+      project => project.slug !== slug,
+    );
+
+    panelist.favorites = panelist.favorites.filter(
+      project => project.slug !== slug,
+    );
+
+    project.approved_count--;
+
+    await this.state.storage.put(PANELIST_KEY, panelist);
+    await this.state.storage.put(PROJECT_KEY, project);
+  }
+
+  async updateFavorites(userId: string, slugs: string[]) {
+    if (slugs.length !== new Set(slugs).size)
+      throw 'SCF panelist cannot repeat projects in their ballot.';
+
+    if (slugs.length > 3)
+      throw 'SCF panelists cannot have more than 3 favorites.';
+
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    const favoriteProjects = slugs.map(slug => {
+      const PROJECT_KEY = projectKey(slug);
+      const project = this.projects.get(PROJECT_KEY);
+
+      if (!project) throw 'Project does not exist.';
+
+      return { slug, name: project.name };
+    });
+
+    panelist.favorites = favoriteProjects;
+
+    this.state.storage.put(PANELIST_KEY, panelist);
+
+    return panelist.favorites;
+  }
+
+  async submitVote(userId: string) {
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    const { favorites } = panelist;
+
+    if (new Set(favorites).size !== 3) {
+      throw 'SCF panelist must submit 3 unique projects in their ballot';
+    }
+
+    const votedProjects = favorites.map(({ slug }) => {
+      const PROJECT_KEY = projectKey(slug);
+      const project = this.projects.get(PROJECT_KEY);
+
+      if (!project) throw 'Project does not exist.';
+
+      return project;
+    });
+
+    const scoreUpdates = votedProjects.reverse().map((project, index) => {
+      const score = index + 1;
+      project.score += score;
+
+      const PROJECT_KEY = projectKey(project.slug);
+      return this.state.storage.put(PROJECT_KEY, project);
+    });
+
+    await Promise.all(scoreUpdates);
+
+    panelist.voted = true;
+    await this.state.storage.put(PANELIST_KEY, panelist);
+
+    return panelist.favorites;
+  }
 }
 
 interface Env {
   WEBFLOW_API_KEY: string;
   BOT_TOKEN: string;
 }
+
+const validateUser = (guildMember: GuildMember) => {
+  const { user, roles } = guildMember;
+
+  if (!user) throw 'User not found.';
+
+  const { id, verified } = user;
+
+  if (!id) throw 'Your Discord email is unverified';
+
+  if (!verified) throw 'Your Discord email is unverified.';
+
+  if (!roles.includes(verifiedRoleId))
+    throw 'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.';
+
+  if (roles.includes(submitterRoleId))
+    throw 'You are ineligible to vote because you have submitted a project for this round.';
+};

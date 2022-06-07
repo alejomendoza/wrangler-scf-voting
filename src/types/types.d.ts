@@ -14,18 +14,6 @@ type ProjectInfo = {
   slug: string;
 };
 
-type Panelist = {
-  id: string;
-  email?: string;
-  voted: boolean;
-  favorites: ProjectInfo[];
-  approved: ProjectInfo[];
-  avatar: string;
-  username: string;
-  discriminator: string;
-  role: 'verified' | 'admin';
-};
-
 interface DiscordUser {
   id: string;
   username: string;
@@ -56,4 +44,11 @@ interface GuildMember {
   pending?: boolean;
   permissions?: string;
   communication_disabled_until?: string;
+}
+
+interface Panelist extends DiscordUser {
+  voted: boolean;
+  favorites: ProjectInfo[];
+  approved: ProjectInfo[];
+  isAdmin: boolean;
 }
