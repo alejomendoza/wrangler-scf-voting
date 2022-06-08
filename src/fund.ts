@@ -1,5 +1,6 @@
 import { response } from 'cfw-easy-utils';
 import { bearer } from '@borderless/parse-authorization';
+import { unparse } from 'papaparse';
 
 import {
   panelistKey,
@@ -148,11 +149,23 @@ export class Fund {
             projects: Array.from(this.projects.values()),
           });
 
-        case 'GET /sync-projects':
+        case 'GET /projects/sync':
           if (!panelist.isAdmin) throw 'Must be admin to sync projects.';
 
           await this.syncProjects();
           return response.json();
+
+        case 'GET /projects/csv':
+          if (!panelist.isAdmin) throw 'Must be admin to get CSV.';
+
+          const output = unparse(Array.from(this.projects.values()));
+
+          return new Response(output, {
+            headers: {
+              'content-type': 'text/csv',
+              'content-disposition': 'attachment; filename="projects.csv"',
+            },
+          });
 
         default:
           return response.json({
