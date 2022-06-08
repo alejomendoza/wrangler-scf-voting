@@ -1,4 +1,4 @@
-import { parseError } from './parse/parse';
+import { parseError } from './utils';
 
 export { Fund } from './fund';
 

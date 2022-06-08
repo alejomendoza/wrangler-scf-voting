@@ -1,19 +1,19 @@
 import { response } from 'cfw-easy-utils';
+import { bearer } from '@borderless/parse-authorization';
+
 import {
   panelistKey,
   PANELISTS_PREFIX,
   projectKey,
   PROJECTS_PREFIX,
 } from './prefix';
-import { bearer } from '@borderless/parse-authorization';
-import { parseError } from './parse/parse';
+
+import { parseError } from './utils';
 import {
-  adminRoleId,
+  role,
   fetchDiscordGuildMember,
   fetchDiscordUser,
-  verifiedRoleId,
-  submitterRoleId,
-} from './discord';
+} from './utils/discord';
 import { getAllProjects } from './utils/webflow';
 
 export class Fund {
@@ -169,7 +169,7 @@ export class Fund {
     const { roles } = discordMember;
 
     const admins = JSON.parse(this.env.ADMINS);
-    const isAdmin = roles.includes(adminRoleId) || admins.includes(user.id);
+    const isAdmin = roles.includes(role.ADMIN) || admins.includes(user.id);
 
     const panelist: Panelist = {
       ...user,
@@ -351,9 +351,9 @@ const validateUser = (user: DiscordUser, guildMember: GuildMember) => {
 
   if (!verified) throw 'Your Discord email is unverified.';
 
-  if (!roles.includes(verifiedRoleId))
+  if (!roles.includes(role.VERIFIED))
     throw 'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.';
 
-  if (roles.includes(submitterRoleId))
+  if (roles.includes(role.SUBMITTER))
     throw 'You are ineligible to vote because you have submitted a project for this round.';
 };
