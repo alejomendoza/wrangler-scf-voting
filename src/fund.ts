@@ -14,10 +14,7 @@ import {
   verifiedRoleId,
   submitterRoleId,
 } from './discord';
-
-const webflowApi = 'https://api.webflow.com';
-const collectionId = '6140c98a2150313e964bdfe1';
-const roundId = '824970ac6f2a9e2c940b05ad07cef4ac';
+import { getAllProjects } from './utils/webflow';
 
 export class Fund {
   state: DurableObjectState;
@@ -53,9 +50,6 @@ export class Fund {
   async fetch(request: Request) {
     let url = new URL(request.url);
 
-    const currentProjects = this.projects;
-    const currentPanelists = this.panelists;
-
     const headers = new Map(request.headers);
     const token = bearer(headers.get('authorization') || '');
 
@@ -68,160 +62,107 @@ export class Fund {
       );
     }
 
-    const user = await fetchDiscordUser(token);
-    const { id } = user;
-
-    const guildMember = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
-
     try {
+      const user = await fetchDiscordUser(token);
+      const { id } = user;
+
+      const guildMember = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
+
       validateUser(user, guildMember);
+
+      const PANELIST_KEY = panelistKey(id);
+
+      let panelist = this.panelists.get(PANELIST_KEY);
+      if (!panelist) panelist = await this.createPanelist(user, guildMember);
+
+      let body: any = {};
+
+      if (request.method === 'POST') {
+        try {
+          body = JSON.parse(await request.text());
+        } catch (err) {
+          body = {};
+        }
+      }
+
+      switch (`${request.method} ${url.pathname}`) {
+        case 'GET /auth':
+          return response.json(panelist, {
+            headers: { 'Cache-Control': 'no-store' },
+          });
+
+        case 'POST /approve':
+          if (!body.slug) throw 'Slug is missing.';
+          if (panelist.voted) throw 'Panelist already voted.';
+
+          this.approveProject(id, body.slug);
+          return response.json();
+
+        case 'POST /unapprove':
+          if (!body.slug) throw 'Slug is missing.';
+          if (panelist.voted) throw 'Panelist already voted.';
+
+          this.unapproveProject(id, body.slug);
+          return response.json();
+
+        case 'POST /submit':
+          if (!body.favorites) throw 'Favorites are missing.';
+          if (panelist.voted) throw 'Panelist already voted.';
+
+          const submittedProjects = this.submitVote(id);
+          return response.json(submittedProjects);
+
+        case 'POST /favorites':
+          if (!body.favorites) throw 'Favorites are missing.';
+          if (!Array.isArray(body.favorites))
+            throw 'Favorites must be an array.';
+          if (panelist.voted) throw 'Panelist already voted.';
+
+          const slugs: string[] = body.favorites;
+
+          const newFavorites = await this.updateFavorites(id, slugs);
+          return response.json(newFavorites);
+
+        case 'GET /panelists':
+          if (!panelist.isAdmin) throw 'Must be admin to get panelists.';
+
+          return response.json({
+            panelists: Array.from(this.panelists.values()),
+          });
+
+        case 'POST /remove-panelist':
+          if (!body.panelist) throw 'Panelist id is missing.';
+          if (!panelist.isAdmin) throw 'Must be admin to delete panelist.';
+
+          await this.deletePanelist(body.panelist);
+
+          return response.json({
+            panelists: Array.from(this.panelists.values()),
+          });
+
+        case 'GET /projects':
+          if (!panelist.isAdmin) throw 'Must be admin to get projects.';
+
+          return response.json({
+            total: this.projects.size,
+            projects: Array.from(this.projects.values()),
+          });
+
+        case 'GET /sync-projects':
+          if (!panelist.isAdmin) throw 'Must be admin to sync projects.';
+
+          await this.syncProjects();
+          return response.json();
+
+        default:
+          return response.json({
+            status: 404,
+            message: 'Endpoint Not Found',
+          });
+      }
     } catch (e) {
       return parseError(e);
     }
-
-    const PANELIST_KEY = panelistKey(id);
-
-    let panelist = currentPanelists.get(PANELIST_KEY);
-    if (!panelist) panelist = await this.createPanelist(user, guildMember);
-
-    let body: any = {};
-
-    if (request.method === 'POST') {
-      try {
-        body = JSON.parse(await request.text());
-      } catch (err) {
-        body = {};
-      }
-    }
-
-    switch (`${request.method} ${url.pathname}`) {
-      case 'GET /auth':
-        return response.json(panelist, {
-          headers: { 'Cache-Control': 'no-store' },
-        });
-
-      case 'POST /approve':
-        if (!body.slug) throw 'Slug is missing.';
-        if (panelist.voted) throw 'Panelist already voted.';
-
-        this.approveProject(id, body.slug);
-        return response.json();
-
-      case 'POST /unapprove':
-        if (!body.slug) throw 'Slug is missing.';
-        if (panelist.voted) throw 'Panelist already voted.';
-
-        this.unapproveProject(id, body.slug);
-        return response.json();
-
-      case 'POST /submit':
-        if (!body.favorites) throw 'Favorites are missing.';
-        if (panelist.voted) throw 'Panelist already voted.';
-
-        const submittedProjects = this.submitVote(id);
-        return response.json(submittedProjects);
-
-      case 'POST /favorites':
-        if (!body.favorites) throw 'Favorites are missing.';
-        if (panelist.voted) throw 'Panelist already voted.';
-
-        const slugs: string[] = body.favorites;
-
-        const newFavorites = await this.updateFavorites(id, slugs);
-        return response.json(newFavorites);
-
-      case 'GET /panelists':
-        return response.json({
-          panelists: Array.from(this.panelists.values()),
-        });
-
-      case 'POST /remove-panelist':
-        if (!body.panelist) throw 'Panelist id is missing.';
-        if (!panelist.isAdmin) throw 'Must be admin to delete panelist.';
-        await this.deletePanelist(body.panelist);
-
-        return response.json({
-          panelists: Array.from(this.panelists.values()),
-        });
-
-      case 'GET /projects':
-        if (!panelist.isAdmin) throw 'Must be admin to get projects.';
-
-        return response.json({
-          projects: Array.from(this.projects.values()),
-        });
-
-      case '/sync-projects':
-        let res: any;
-        try {
-          res = await fetch(
-            `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
-          );
-        } catch (e) {
-          console.log('error', e);
-        }
-        const results = await res.json();
-
-        const { items }: { items: [] } = results;
-        const indexItems = items
-          .filter((result: any) => result.round === roundId)
-          .map(async (item: any) => {
-            let projectId = item['_id'];
-            const INDEX_PROJECT_KEY = projectKey(item.slug);
-
-            let project = currentProjects.get(INDEX_PROJECT_KEY);
-            if (!project) {
-              let newProject = {
-                score: 0,
-                approved_count: 0,
-                id: projectId as string,
-                description: item['quick-description'],
-                name: item.name,
-                site: item['customer-interface-if-featured'],
-                logoUrl: item.logo ? item.logo.url : '',
-                slug: item.slug,
-              };
-              currentProjects.set(INDEX_PROJECT_KEY, newProject);
-              await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
-            } else {
-              let updatedProject = {
-                score: project.score,
-                approved_count: project.approved_count,
-                id: projectId as string,
-                description: item['quick-description'],
-                name: item.name,
-                site: item['customer-interface-if-featured'],
-                logoUrl: item.logo.url,
-                slug: item.slug,
-              };
-              await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
-              await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
-            }
-          });
-
-        await Promise.all(indexItems);
-
-      case '/':
-        break;
-      default:
-        return response.json({
-          status: 404,
-          message: 'Not Found',
-        });
-    }
-
-    // Return `currentValue`. Note that `this.value` may have been
-    // incremented or decremented by a concurrent request when we
-    // yielded the event loop to `await` the `storage.put` above!
-    // That's why we stored the counter value created by this
-    // request in `currentValue` before we used `await`.
-    return response.json({
-      projects: Array.from(currentProjects)
-        .map(([, project]) => project)
-        .sort((a, b) => {
-          return b.approved_count - a.approved_count || b.score - a.score;
-        }),
-    });
   }
 
   async createPanelist(user: DiscordUser, discordMember: GuildMember) {
@@ -322,7 +263,7 @@ export class Fund {
       const PROJECT_KEY = projectKey(slug);
       const project = this.projects.get(PROJECT_KEY);
 
-      if (!project) throw 'Project does not exist.';
+      if (!project) throw `Project '${slug}' does not exist.`;
 
       return { slug, name: project.name };
     });
@@ -369,6 +310,30 @@ export class Fund {
     await this.state.storage.put(PANELIST_KEY, panelist);
 
     return panelist.favorites;
+  }
+
+  async syncProjects() {
+    const projects = await getAllProjects(this.env.WEBFLOW_API_KEY);
+
+    const syncUpdates = projects.map(item => {
+      const PROJECT_KEY = projectKey(item.slug);
+
+      const project = this.projects.get(PROJECT_KEY);
+
+      const syncedProject: Project = {
+        score: 0,
+        approved_count: 0,
+        id: item._id,
+        name: item.name,
+        slug: item.slug,
+        ...project,
+      };
+
+      this.projects.set(PROJECT_KEY, syncedProject);
+      return this.state.storage.put(PROJECT_KEY, syncedProject);
+    });
+
+    await Promise.all(syncUpdates);
   }
 }
 

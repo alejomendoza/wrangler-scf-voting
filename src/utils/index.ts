@@ -1,6 +1,13 @@
-export async function handleResponse(response: any) {
-  if (response.ok)
-    return response.headers.get('content-type')?.indexOf('json') > -1 ? response.json() : response.text()
+export async function handleResponse(response: Response): Promise<any> {
+  const { headers, ok } = response;
+  const contentType = headers.get('content-type');
 
-  throw response
+  const content = contentType
+    ? contentType.includes('json')
+      ? response.json()
+      : response.text()
+    : { status: response.status, message: response.statusText };
+
+  if (ok) return content;
+  else throw await content;
 }
