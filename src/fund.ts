@@ -97,17 +97,16 @@ export class Fund {
           if (panelist.voted) throw 'Panelist already voted.';
 
           this.approveProject(id, body.slug);
-          return response.json();
+          return response.json(null);
 
         case 'POST /unapprove':
           if (!body.slug) throw 'Slug is missing.';
           if (panelist.voted) throw 'Panelist already voted.';
 
           this.unapproveProject(id, body.slug);
-          return response.json();
+          return response.json(null);
 
         case 'POST /submit':
-          if (!body.favorites) throw 'Favorites are missing.';
           if (panelist.voted) throw 'Panelist already voted.';
 
           const submittedProjects = this.submitVote(id);
@@ -129,6 +128,37 @@ export class Fund {
 
           return response.json({
             panelists: Array.from(this.panelists.values()),
+          });
+
+        case 'GET /panelists/csv':
+          if (!panelist.isAdmin) throw 'Must be admin to get panelists CSV.';
+
+          const formattedPanelists = Array.from(this.panelists.values()).map(
+            panelist => {
+              const { id, username, voted, favorites, approved } = panelist;
+
+              const temp: any = {
+                id,
+                username,
+                totalApproved: approved.length,
+                voted,
+              };
+
+              for (let i = 0; i < 3; i++) {
+                temp[`favorite-${i + 1}`] = favorites[i]?.name || '';
+              }
+
+              return temp;
+            },
+          );
+
+          const panelistsCsv = unparse(formattedPanelists);
+
+          return new Response(panelistsCsv, {
+            headers: {
+              'content-type': 'text/csv',
+              'content-disposition': 'attachment; filename="panelists.csv"',
+            },
           });
 
         case 'POST /remove-panelist':
@@ -153,14 +183,14 @@ export class Fund {
           if (!panelist.isAdmin) throw 'Must be admin to sync projects.';
 
           await this.syncProjects();
-          return response.json();
+          return response.json(null);
 
         case 'GET /projects/csv':
           if (!panelist.isAdmin) throw 'Must be admin to get CSV.';
 
-          const output = unparse(Array.from(this.projects.values()));
+          const projectsCsv = unparse(Array.from(this.projects.values()));
 
-          return new Response(output, {
+          return new Response(projectsCsv, {
             headers: {
               'content-type': 'text/csv',
               'content-disposition': 'attachment; filename="projects.csv"',
@@ -334,11 +364,11 @@ export class Fund {
       const project = this.projects.get(PROJECT_KEY);
 
       const syncedProject: Project = {
-        score: 0,
-        approved_count: 0,
         id: item._id,
         name: item.name,
         slug: item.slug,
+        score: 0,
+        approved_count: 0,
         ...project,
       };
 
