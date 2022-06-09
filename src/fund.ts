@@ -135,11 +135,19 @@ export class Fund {
 
           const formattedPanelists = Array.from(this.panelists.values()).map(
             panelist => {
-              const { id, username, voted, favorites, approved } = panelist;
+              const {
+                id,
+                username,
+                email,
+                voted,
+                favorites,
+                approved,
+              } = panelist;
 
               const temp: any = {
                 id,
                 username,
+                email,
                 totalApproved: approved.length,
                 voted,
               };
