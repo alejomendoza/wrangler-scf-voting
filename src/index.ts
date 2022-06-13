@@ -27,12 +27,8 @@ async function handleRequest(request: Request, env: Env) {
       },
     });
 
-  let id = env.FUND.idFromName('ROUND9A');
-  let obj = env.FUND.get(id);
-  let res = await obj.fetch(request);
+  const id = env.FUND.idFromName('ROUND9A');
+  const obj = env.FUND.get(id);
+  const res = await obj.fetch(request);
   return res;
-}
-
-interface Env {
-  FUND: DurableObjectNamespace;
 }

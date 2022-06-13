@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "wrangler dev",
-    "publish": "wrangler publish"
+    "publish": "wrangler publish",
+    "publish-prod": "wrangler publish --env prod"
   },
   "author": "Alejo Mendoza <alejandro@skyhitzmusic.com>",
   "devDependencies": {

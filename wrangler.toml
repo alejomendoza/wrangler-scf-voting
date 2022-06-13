@@ -1,6 +1,7 @@
-name = "wrangler-scf-voting"
+name = "scf-voting-dev"
 main = "src/index.ts"
 compatibility_date = "2022-06-05"
+vars = { ENVIRONMENT = "dev" }
 
 [durable_objects]
 bindings = [
@@ -10,6 +11,19 @@ bindings = [
 [[migrations]]
 tag = "v1"
 new_classes = ["Fund"]
+
+# [[migrations]]
+# tag = "reset"
+# deleted_classes = ["Fund"]
+
+[env.prod]
+name = "scf-voting-prod"
+vars = { ENVIRONMENT = "prod" }
+
+[env.prod.durable_objects]
+bindings = [
+  { name = "FUND", class_name = "Fund" } 
+]
 
 # [secrets]
 # BOT_TOKEN
