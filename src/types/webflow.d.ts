@@ -10,4 +10,5 @@ interface WebflowItem {
   _id: string;
   slug: string;
   name: string;
+  'candidate-rounds'?: string[];
 }

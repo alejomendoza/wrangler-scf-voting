@@ -2,7 +2,7 @@ import { handleResponse } from '.';
 
 const webflowApi = 'https://api.webflow.com';
 const collectionId = '629e269eb4ffa3312c44af8e';
-const roundId = '824970ac6f2a9e2c940b05ad07cef4ac';
+const projectTag = '629e269eb4ffa3824144aff2';
 
 export const getProjects = async (
   authToken: string,
@@ -32,5 +32,9 @@ export const getAllProjects = async (authToken: string) => {
     count = paginatedProjects.count;
   }
 
-  return projects;
+  const filteredProjects = projects.filter(project =>
+    project['candidate-rounds']?.includes(projectTag),
+  );
+
+  return filteredProjects;
 };

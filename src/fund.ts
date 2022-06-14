@@ -162,12 +162,7 @@ export class Fund {
 
           const panelistsCsv = unparse(formattedPanelists);
 
-          return new Response(panelistsCsv, {
-            headers: {
-              'content-type': 'text/csv',
-              'content-disposition': 'attachment; filename="panelists.csv"',
-            },
-          });
+          return response.json({ csv: panelistsCsv });
 
         case 'POST /remove-panelist':
           if (!body.panelist) throw 'Panelist id is missing.';
@@ -198,12 +193,7 @@ export class Fund {
 
           const projectsCsv = unparse(Array.from(this.projects.values()));
 
-          return new Response(projectsCsv, {
-            headers: {
-              'content-type': 'text/csv',
-              'content-disposition': 'attachment; filename="projects.csv"',
-            },
-          });
+          return response.json({ csv: projectsCsv });
 
         default:
           return response.json({
