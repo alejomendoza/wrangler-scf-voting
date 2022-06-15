@@ -395,6 +395,9 @@ const validateUser = (user: DiscordUser, guildMember: GuildMember) => {
   if (!roles.includes(role.VERIFIED))
     throw 'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.';
 
-  if (roles.includes(role.SUBMITTER))
+  if (!roles.includes(role.VOTER))
+    throw 'The ability to vote is only available for verified community members with a voter role in the SCF discord.';
+
+  if (roles.includes(role.SCF10))
     throw 'You are ineligible to vote because you have submitted a project for this round.';
 };

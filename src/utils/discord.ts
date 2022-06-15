@@ -4,6 +4,8 @@ export enum role {
   ADMIN = '845026552286937119',
   VERIFIED = '831189270344630293',
   SUBMITTER = '879828995833724948',
+  VOTER = '887005159606079489',
+  SCF10 = '982331569664585768',
 }
 
 export const discordApiUrl = 'https://discord.com/api';
