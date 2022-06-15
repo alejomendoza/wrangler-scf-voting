@@ -392,6 +392,8 @@ const validateUser = (user: DiscordUser, guildMember: GuildMember) => {
 
   if (!verified) throw 'Your Discord email is unverified.';
 
+  if (roles.includes(role.ADMIN)) return;
+
   if (!roles.includes(role.VERIFIED))
     throw 'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.';
 
