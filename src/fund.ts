@@ -201,9 +201,11 @@ export class Fund {
         case 'GET /reset':
           if (!panelist.isAdmin) throw 'Must be admin to initialize reset.';
 
+          await this.state.storage.deleteAlarm();
+
           this.resetKey = getRandomInt(1000, 10000);
 
-          this.state.storage.setAlarm(Date.now() + 10 * SECONDS);
+          await this.state.storage.setAlarm(Date.now() + 10 * SECONDS);
 
           return response.json({ resetKey: this.resetKey });
 
@@ -214,7 +216,10 @@ export class Fund {
           if (!body.resetKey) throw 'resetKey is missing.';
           if (this.resetKey !== body.resetKey) throw 'resetKey invalid.';
 
+          await this.state.storage.deleteAlarm();
+
           this.resetKey = undefined;
+
           await this.reset();
 
           return response.json(null);
