@@ -1,6 +1,7 @@
 name = "scf-voting-dev"
 main = "src/index.ts"
 compatibility_date = "2022-06-05"
+compatibility_flags = ["durable_object_alarms"]
 vars = { ENVIRONMENT = "dev" }
 
 [durable_objects]

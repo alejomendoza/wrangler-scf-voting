@@ -9,7 +9,7 @@ import {
   PROJECTS_PREFIX,
 } from './prefix';
 
-import { parseError } from './utils';
+import { getRandomInt, parseError } from './utils';
 import {
   role,
   fetchDiscordGuildMember,
@@ -17,12 +17,15 @@ import {
 } from './utils/discord';
 import { getAllProjects } from './utils/webflow';
 
+const SECONDS = 1000;
+
 export class Fund {
   state: DurableObjectState;
   env: Env;
 
   projects: Map<string, Project> = new Map([]);
   panelists: Map<string, Panelist> = new Map([]);
+  resetKey?: number;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -195,6 +198,26 @@ export class Fund {
 
           return response.json({ csv: projectsCsv });
 
+        case 'GET /reset':
+          if (!panelist.isAdmin) throw 'Must be admin to initialize reset.';
+
+          this.resetKey = getRandomInt(1000, 10000);
+
+          this.state.storage.setAlarm(Date.now() + 10 * SECONDS);
+
+          return response.json({ resetKey: this.resetKey });
+
+        case 'POST /reset':
+          if (!panelist.isAdmin) throw 'Must be admin to reset.';
+          if (!this.resetKey)
+            throw 'Reset has not been initialized or has timed out.';
+          if (!body.resetKey) throw 'resetKey is missing.';
+          if (this.resetKey !== body.resetKey) throw 'resetKey invalid.';
+
+          this.resetKey = undefined;
+          await this.reset();
+
+          return response.json(null);
         default:
           return response.json({
             status: 404,
@@ -204,6 +227,10 @@ export class Fund {
     } catch (e) {
       return parseError(e);
     }
+  }
+
+  async alarm() {
+    this.resetKey = undefined;
   }
 
   async createPanelist(user: DiscordUser, discordMember: GuildMember) {
@@ -375,6 +402,14 @@ export class Fund {
     });
 
     await Promise.all(syncUpdates);
+  }
+
+  async reset() {
+    await this.state.blockConcurrencyWhile(async () => {
+      await this.state.storage.deleteAll();
+      await this.initialize();
+      await this.syncProjects();
+    });
   }
 }
 
