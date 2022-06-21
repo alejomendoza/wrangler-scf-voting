@@ -1,74 +1,59 @@
-import { Project } from './types/project';
-import { Panelist } from './types/panelist';
 import { response } from 'cfw-easy-utils';
+import { bearer } from '@borderless/parse-authorization';
+import { unparse } from 'papaparse';
+
 import {
   panelistKey,
   PANELISTS_PREFIX,
   projectKey,
   PROJECTS_PREFIX,
 } from './prefix';
-import { bearer } from '@borderless/parse-authorization';
+
+import { getRandomInt, parseError } from './utils';
 import {
-  adminRoleId,
+  role,
   fetchDiscordGuildMember,
   fetchDiscordUser,
-  verifiedRoleId,
-  submitterRoleId,
-} from './discord';
+} from './utils/discord';
+import { getAllProjects } from './utils/webflow';
 
-const webflowApi = 'https://api.webflow.com';
-const collectionId = '6140c98a2150313e964bdfe1';
-const roundId = '824970ac6f2a9e2c940b05ad07cef4ac';
+const SECONDS = 1000;
 
 export class Fund {
-  projects: Map<string, Project> = new Map([]);
-  panelists: Map<string, Panelist> = new Map([]);
-
   state: DurableObjectState;
   env: Env;
 
-  initializePromise: Promise<void> | undefined;
+  projects: Map<string, Project> = new Map([]);
+  panelists: Map<string, Panelist> = new Map([]);
+  resetKey?: number;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
+
+    this.state.blockConcurrencyWhile(async () => {
+      await this.initialize();
+    });
   }
 
   async initialize() {
-    let [projects, panelists] = [
-      await this.state.storage.list<Project>({ prefix: PROJECTS_PREFIX }),
-      await this.state.storage.list<Panelist>({ prefix: PANELISTS_PREFIX }),
+    const [projects, panelists] = [
+      await this.state.storage.list<Project>({
+        prefix: PROJECTS_PREFIX,
+      }),
+      await this.state.storage.list<Panelist>({
+        prefix: PANELISTS_PREFIX,
+      }),
     ];
 
-    if (projects) {
-      this.projects = projects;
-    }
-    if (panelists) {
-      this.panelists = panelists;
-    }
+    if (projects) this.projects = projects;
+    if (panelists) this.panelists = panelists;
   }
 
   // Handle HTTP requests from clients.
   async fetch(request: Request) {
-    // Make sure we're fully initialized from storage.
-    if (!this.initializePromise) {
-      this.initializePromise = this.initialize().catch(err => {
-        // If anything throws during initialization then we need to be
-        // sure sure that a future request will retry initialize().
-        // Note that the concurrency involved in resetting this shared
-        // promise on an error can be tricky to get right -- we don't
-        // recommend customizing it.
-        this.initializePromise = undefined;
-        throw err;
-      });
-    }
-    await this.initializePromise;
-
     let url = new URL(request.url);
-    let { pathname } = url;
 
-    let currentProjects = this.projects;
-    let currentPanelists = this.panelists;
     const headers = new Map(request.headers);
     const token = bearer(headers.get('authorization') || '');
 
@@ -81,445 +66,354 @@ export class Fund {
       );
     }
 
-    const {
-      id,
-      email,
-      verified,
-      avatar,
-      username,
-      discriminator,
-    } = await fetchDiscordUser(token);
+    try {
+      const user = await fetchDiscordUser(token);
+      const { id } = user;
 
-    let { roles }: { roles: string[] } = await fetchDiscordGuildMember(
-      id,
-      this.env.BOT_TOKEN,
-    );
+      const guildMember = await fetchDiscordGuildMember(id, this.env.BOT_TOKEN);
 
-    if (!id) {
-      return response.json(
-        {
-          message: 'Failed to authenticate',
-        },
-        { status: 404 },
-      );
-    }
+      validateUser(user, guildMember);
 
-    if (!verified) {
-      return response.json(
-        {
-          message: 'Your Discord email is unverified',
-        },
-        { status: 404 },
-      );
-    }
+      const PANELIST_KEY = panelistKey(id);
 
-    if (!roles.includes(verifiedRoleId)) {
-      return response.json(
-        {
-          message:
-            'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.',
-        },
-        { status: 404 },
-      );
-    }
+      let panelist = this.panelists.get(PANELIST_KEY);
+      if (!panelist) panelist = await this.createPanelist(user, guildMember);
 
-    if (roles.includes(submitterRoleId)) {
-      return response.json(
-        {
-          message:
-            'You are ineligible to vote because you have submitted a project for this round.',
-        },
-        { status: 404 },
-      );
-    }
+      let body: any = {};
 
-    console.log('user id: ', id);
+      if (request.method === 'POST') {
+        try {
+          body = JSON.parse(await request.text());
+        } catch (err) {
+          body = {};
+        }
+      }
 
-    const PANELIST_KEY = panelistKey(id);
-    let panelist = await currentPanelists.get(PANELIST_KEY);
-
-    switch (pathname) {
-      case '/auth':
-        if (!panelist) {
-          const newPanelist: Panelist = {
-            id: id,
-            email: email,
-            voted: false,
-            favorites: [],
-            approved: [],
-            avatar: avatar,
-            username: username,
-            discriminator: discriminator,
-            role: roles.includes(adminRoleId) ? 'admin' : 'verified',
-          };
-          currentPanelists.set(PANELIST_KEY, newPanelist);
-          await this.state.storage.put(PANELIST_KEY, newPanelist);
-          return response.json(newPanelist, {
+      switch (`${request.method} ${url.pathname}`) {
+        case 'GET /auth':
+          return response.json(panelist, {
             headers: { 'Cache-Control': 'no-store' },
           });
-        }
 
-        return response.json(panelist, {
-          headers: { 'Cache-Control': 'no-store' },
-        });
+        case 'POST /approve':
+          if (!body.slug) throw 'Slug is missing.';
+          if (panelist.voted) throw 'Panelist already voted.';
 
-      case '/unapprove':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
+          this.approveProject(id, body.slug);
+          return response.json(null);
 
-        const removeVoteBody = await request.json();
-        const removeSlug = removeVoteBody.slug;
+        case 'POST /unapprove':
+          if (!body.slug) throw 'Slug is missing.';
+          if (panelist.voted) throw 'Panelist already voted.';
 
-        if (!panelist) {
-          return response.json(
-            {
-              message: 'Authenticate as a panelist to vote',
-            },
-            { status: 404 },
-          );
-        }
+          this.unapproveProject(id, body.slug);
+          return response.json(null);
 
-        if (!removeSlug) {
-          return response.json(
-            {
-              message: 'must send slug as a body param',
-            },
-            { status: 404 },
-          );
-        }
+        case 'POST /submit':
+          if (panelist.voted) throw 'Panelist already voted.';
 
-        if (panelist.voted) {
-          return response.json(
-            {
-              message: 'Votes can not be modified after ballot submission',
-            },
-            { status: 404 },
-          );
-        }
+          const submittedProjects = this.submitVote(id);
+          return response.json(submittedProjects);
 
-        const REMOVE_PROJECT_KEY = projectKey(removeSlug);
-        let removedVoteProject = currentProjects.get(REMOVE_PROJECT_KEY);
-        if (!removedVoteProject) {
-          return response.json(
-            {
-              message: 'project does not exist',
-            },
-            { status: 404 },
-          );
-        }
+        case 'POST /favorites':
+          if (!body.favorites) throw 'Favorites are missing.';
+          if (!Array.isArray(body.favorites))
+            throw 'Favorites must be an array.';
+          if (panelist.voted) throw 'Panelist already voted.';
 
-        if (!panelist.approved.find(info => info.slug === removeSlug)) {
-          return response.json(
-            {
-              message: 'You have not voted for this project',
-            },
-            { status: 403 },
-          );
-        }
+          const slugs: string[] = body.favorites;
 
-        if (!!panelist.favorites.find(info => info.slug === removeSlug)) {
-          panelist.favorites = panelist.favorites.filter(
-            vote => vote.slug !== removeSlug,
-          );
-        }
+          const newFavorites = await this.updateFavorites(id, slugs);
+          return response.json(newFavorites);
 
-        let removedVoteUpdate = {
-          ...removedVoteProject,
-          approved_count: removedVoteProject.approved_count - 1,
-        };
-        currentProjects.set(REMOVE_PROJECT_KEY, removedVoteUpdate);
-        await this.state.storage.put(REMOVE_PROJECT_KEY, removedVoteUpdate);
+        case 'GET /panelists':
+          if (!panelist.isAdmin) throw 'Must be admin to get panelists.';
 
-        panelist.approved = panelist.approved.filter(
-          vote => vote.slug !== removeSlug,
-        );
-
-        currentPanelists.set(PANELIST_KEY, panelist);
-        await this.state.storage.put(PANELIST_KEY, panelist);
-        return response.json(removedVoteUpdate);
-
-      case '/approve':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
-        const addVoteBody = await request.json();
-        const slug = addVoteBody.slug;
-
-        if (!panelist) {
-          return response.json(
-            {
-              message: 'Authenticate as a panelist to vote',
-            },
-            { status: 404 },
-          );
-        }
-
-        if (panelist.voted) {
-          return response.json(
-            {
-              message: 'Votes can not be modified after ballot submission',
-            },
-            { status: 404 },
-          );
-        }
-
-        if (!slug) {
-          return response.json(
-            {
-              message: 'must send slug as a search param',
-            },
-            { status: 404 },
-          );
-        }
-
-        const PROJECT_KEY = projectKey(slug);
-        let project = currentProjects.get(PROJECT_KEY);
-        if (!project) {
-          return response.json(
-            {
-              message: 'project does not exist',
-            },
-            { status: 404 },
-          );
-        }
-
-        if (panelist.approved.find(info => info.slug === slug)) {
-          return response.json(
-            {
-              message: 'You already voted for this project',
-            },
-            { status: 403 },
-          );
-        }
-
-        let updatedProject = {
-          ...project,
-          approved_count: project.approved_count + 1,
-        };
-        currentProjects.set(PROJECT_KEY, updatedProject);
-        await this.state.storage.put(PROJECT_KEY, updatedProject);
-
-        panelist.approved.push({
-          slug: updatedProject.slug,
-          name: updatedProject.name,
-        });
-
-        currentPanelists.set(PANELIST_KEY, panelist);
-        await this.state.storage.put(PANELIST_KEY, panelist);
-        return response.json(updatedProject);
-      case '/favorites':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
-            },
-            { status: 404 },
-          );
-        }
-        const favoritesBody = await request.json();
-        const slugs: string[] = favoritesBody.favorites;
-        const submitting: boolean = !!favoritesBody.submitting;
-
-        if (!panelist) {
-          return response.json(
-            {
-              message: 'Authenticate as a panelist to vote',
-            },
-            { status: 404 },
-          );
-        }
-        if (panelist.voted) {
-          return response.json(
-            {
-              message: 'You already submitted your favorites',
-            },
-            { status: 403 },
-          );
-        }
-
-        if (!slugs) {
-          return response.json(
-            {
-              message: 'Must send favorites in the body of the request',
-            },
-            { status: 403 },
-          );
-        }
-
-        if (slugs.length !== 3 && submitting) {
-          return response.json(
-            {
-              message: 'SCF panelist can only send 3 projects in their ballot',
-            },
-            { status: 403 },
-          );
-        }
-
-        console.log('passed length check');
-
-        if (slugs.length !== new Set(slugs).size) {
-          return response.json(
-            {
-              message: 'SCF panelist can not repeat projects in their ballot',
-            },
-            { status: 403 },
-          );
-        }
-
-        console.log('passed checks');
-
-        let projectsPromises = slugs.map(
-          async (projectId: string): Promise<Project> => {
-            const PROJECT_KEY = projectKey(projectId);
-            return currentProjects.get(PROJECT_KEY) as Project;
-          },
-        );
-
-        let projects = await Promise.all(projectsPromises);
-
-        if (submitting) {
-          let favorites = projects.reverse().map(async (project, index) => {
-            let score = index + 1;
-            let updatedProject: Project = {
-              ...project,
-              score: project.score + score,
-            };
-
-            const BALLOT_PROJECT_KEY = projectKey(project.slug);
-
-            currentProjects.set(BALLOT_PROJECT_KEY, updatedProject);
-            await this.state.storage.put(BALLOT_PROJECT_KEY, updatedProject);
+          return response.json({
+            panelists: Array.from(this.panelists.values()),
           });
 
-          await Promise.all(favorites);
+        case 'GET /panelists/csv':
+          if (!panelist.isAdmin) throw 'Must be admin to get panelists CSV.';
 
-          panelist.voted = true;
+          const formattedPanelists = Array.from(this.panelists.values()).map(
+            panelist => {
+              const {
+                id,
+                username,
+                email,
+                voted,
+                favorites,
+                approved,
+              } = panelist;
 
-          panelist.favorites = projects.reverse().map(project => ({
-            name: project.name,
-            slug: project.slug,
-          }));
-        } else {
-          panelist.favorites = projects.map(project => ({
-            name: project.name,
-            slug: project.slug,
-          }));
-        }
+              const temp: any = {
+                id,
+                username,
+                email,
+                totalApproved: approved.length,
+                voted,
+              };
 
-        currentPanelists.set(PANELIST_KEY, panelist);
-        await this.state.storage.put(PANELIST_KEY, panelist);
-        return response.json(panelist.favorites);
+              for (let i = 0; i < 3; i++) {
+                temp[`favorite-${i + 1}`] = favorites[i]?.name || '';
+              }
 
-      case '/panelists':
-        return response.json({
-          panelists: Array.from(currentPanelists).map(([, value]) => value),
-        });
-      case '/remove-panelist':
-        if (request.method !== 'POST') {
-          return response.json(
-            {
-              message: 'must send a POST request',
+              return temp;
             },
-            { status: 404 },
           );
-        }
-        const removePanelistBody = await request.json();
-        const removePanelistId: string = removePanelistBody.panelist;
-        const REMOVE_PANELIST_KEY = panelistKey(removePanelistId);
-        currentPanelists.delete(REMOVE_PANELIST_KEY);
-        await this.state.storage.delete(REMOVE_PANELIST_KEY);
-        return response.json({
-          panelists: Array.from(currentPanelists).map(([, value]) => value),
-        });
-      case '/sync-projects':
-        let res: any;
-        try {
-          res = await fetch(
-            `${webflowApi}/collections/${collectionId}/items?access_token=${this.env.WEBFLOW_API_KEY}&api_version=1.0.0`,
-          );
-        } catch (e) {
-          console.log('error', e);
-        }
-        const results = await res.json();
 
-        const { items }: { items: [] } = results;
-        const indexItems = items
-          .filter((result: any) => result.round === roundId)
-          .map(async (item: any) => {
-            let projectId = item['_id'];
-            const INDEX_PROJECT_KEY = projectKey(item.slug);
+          const panelistsCsv = unparse(formattedPanelists);
 
-            let project = currentProjects.get(INDEX_PROJECT_KEY);
-            if (!project) {
-              let newProject = {
-                score: 0,
-                approved_count: 0,
-                id: projectId as string,
-                description: item['quick-description'],
-                name: item.name,
-                site: item['customer-interface-if-featured'],
-                logoUrl: item.logo ? item.logo.url : '',
-                slug: item.slug,
-              };
-              currentProjects.set(INDEX_PROJECT_KEY, newProject);
-              await this.state.storage.put(INDEX_PROJECT_KEY, newProject);
-            } else {
-              let updatedProject = {
-                score: project.score,
-                approved_count: project.approved_count,
-                id: projectId as string,
-                description: item['quick-description'],
-                name: item.name,
-                site: item['customer-interface-if-featured'],
-                logoUrl: item.logo.url,
-                slug: item.slug,
-              };
-              await currentProjects.set(INDEX_PROJECT_KEY, updatedProject);
-              await this.state.storage.put(INDEX_PROJECT_KEY, updatedProject);
-            }
+          return response.json({ csv: panelistsCsv });
+
+        case 'POST /remove-panelist':
+          if (!body.panelist) throw 'Panelist id is missing.';
+          if (!panelist.isAdmin) throw 'Must be admin to delete panelist.';
+
+          await this.deletePanelist(body.panelist);
+
+          return response.json({
+            panelists: Array.from(this.panelists.values()),
           });
 
-        await Promise.all(indexItems);
+        case 'GET /projects':
+          if (!panelist.isAdmin) throw 'Must be admin to get projects.';
 
-      case '/projects':
-        return response.json({
-          projects: Array.from(currentProjects)
-            .map(([, project]) => project)
-            .sort((a, b) => {
-              return b.approved_count - a.approved_count || b.score - a.score;
-            }),
-        });
-      case '/':
-        break;
-      default:
-        return response.json({
-          status: 404,
-          message: 'Not Found',
-        });
+          return response.json({
+            total: this.projects.size,
+            projects: Array.from(this.projects.values()),
+          });
+
+        case 'GET /projects/sync':
+          if (!panelist.isAdmin) throw 'Must be admin to sync projects.';
+
+          await this.syncProjects();
+          return response.json(null);
+
+        case 'GET /projects/csv':
+          if (!panelist.isAdmin) throw 'Must be admin to get CSV.';
+
+          const projectsCsv = unparse(Array.from(this.projects.values()));
+
+          return response.json({ csv: projectsCsv });
+
+        case 'GET /reset':
+          if (!panelist.isAdmin) throw 'Must be admin to initialize reset.';
+
+          await this.state.storage.deleteAlarm();
+
+          this.resetKey = getRandomInt(1000, 10000);
+
+          await this.state.storage.setAlarm(Date.now() + 10 * SECONDS);
+
+          return response.json({ resetKey: this.resetKey });
+
+        case 'POST /reset':
+          if (!panelist.isAdmin) throw 'Must be admin to reset.';
+          if (!this.resetKey)
+            throw 'Reset has not been initialized or has timed out.';
+          if (!body.resetKey) throw 'resetKey is missing.';
+          if (this.resetKey !== body.resetKey) throw 'resetKey invalid.';
+
+          await this.state.storage.deleteAlarm();
+
+          this.resetKey = undefined;
+
+          await this.reset();
+
+          return response.json(null);
+        default:
+          return response.json({
+            status: 404,
+            message: 'Endpoint Not Found',
+          });
+      }
+    } catch (e) {
+      return parseError(e);
+    }
+  }
+
+  async alarm() {
+    this.resetKey = undefined;
+  }
+
+  async createPanelist(user: DiscordUser, discordMember: GuildMember) {
+    const { roles } = discordMember;
+
+    const admins = JSON.parse(this.env.ADMINS);
+    const isAdmin = roles.includes(role.ADMIN) || admins.includes(user.id);
+
+    const panelist: Panelist = {
+      ...user,
+      voted: false,
+      favorites: [],
+      approved: [],
+      isAdmin,
+    };
+
+    const PANELIST_KEY = panelistKey(user.id);
+
+    this.panelists.set(PANELIST_KEY, panelist);
+    await this.state.storage.put(PANELIST_KEY, panelist);
+
+    return panelist;
+  }
+
+  async deletePanelist(userId: string) {
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    this.panelists.delete(PANELIST_KEY);
+    await this.state.storage.delete(PANELIST_KEY);
+
+    return this.panelists;
+  }
+
+  async approveProject(userId: string, slug: string) {
+    const PROJECT_KEY = projectKey(slug);
+    const project = this.projects.get(PROJECT_KEY);
+
+    if (!project) throw 'Project does not exist.';
+
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    panelist.approved = panelist.approved.filter(
+      project => project.slug !== slug,
+    );
+
+    panelist.approved.push({ slug, name: project.name });
+
+    project.approved_count++;
+
+    await this.state.storage.put(PANELIST_KEY, panelist);
+    await this.state.storage.put(PROJECT_KEY, project);
+  }
+
+  async unapproveProject(userId: string, slug: string) {
+    const PROJECT_KEY = projectKey(slug);
+    const project = this.projects.get(PROJECT_KEY);
+
+    if (!project) throw 'Project does not exist.';
+
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    panelist.approved = panelist.approved.filter(
+      project => project.slug !== slug,
+    );
+
+    panelist.favorites = panelist.favorites.filter(
+      project => project.slug !== slug,
+    );
+
+    project.approved_count--;
+
+    await this.state.storage.put(PANELIST_KEY, panelist);
+    await this.state.storage.put(PROJECT_KEY, project);
+  }
+
+  async updateFavorites(userId: string, slugs: string[]) {
+    if (slugs.length !== new Set(slugs).size)
+      throw 'SCF panelist cannot repeat projects in their ballot.';
+
+    if (slugs.length > 3)
+      throw 'SCF panelists cannot have more than 3 favorites.';
+
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    const favoriteProjects = slugs.map(slug => {
+      const PROJECT_KEY = projectKey(slug);
+      const project = this.projects.get(PROJECT_KEY);
+
+      if (!project) throw `Project '${slug}' does not exist.`;
+
+      return { slug, name: project.name };
+    });
+
+    panelist.favorites = favoriteProjects;
+
+    await this.state.storage.put(PANELIST_KEY, panelist);
+
+    return panelist.favorites;
+  }
+
+  async submitVote(userId: string) {
+    const PANELIST_KEY = panelistKey(userId);
+    const panelist = this.panelists.get(PANELIST_KEY);
+
+    if (!panelist) throw 'Panelist does not exist.';
+
+    const { favorites } = panelist;
+
+    if (new Set(favorites).size !== 3) {
+      throw 'SCF panelist must submit 3 unique projects in their ballot';
     }
 
-    // Return `currentValue`. Note that `this.value` may have been
-    // incremented or decremented by a concurrent request when we
-    // yielded the event loop to `await` the `storage.put` above!
-    // That's why we stored the counter value created by this
-    // request in `currentValue` before we used `await`.
-    return response.json({
-      projects: Array.from(currentProjects)
-        .map(([, project]) => project)
-        .sort((a, b) => {
-          return b.approved_count - a.approved_count || b.score - a.score;
-        }),
+    const votedProjects = favorites.map(({ slug }) => {
+      const PROJECT_KEY = projectKey(slug);
+      const project = this.projects.get(PROJECT_KEY);
+
+      if (!project) throw 'Project does not exist.';
+
+      return project;
+    });
+
+    const scoreUpdates = votedProjects.reverse().map((project, index) => {
+      const score = index + 1;
+      project.score += score;
+
+      const PROJECT_KEY = projectKey(project.slug);
+      return this.state.storage.put(PROJECT_KEY, project);
+    });
+
+    await Promise.all(scoreUpdates);
+
+    panelist.voted = true;
+    await this.state.storage.put(PANELIST_KEY, panelist);
+
+    return panelist.favorites;
+  }
+
+  async syncProjects() {
+    const projects = await getAllProjects(this.env.WEBFLOW_API_KEY);
+
+    const syncUpdates = projects.map(item => {
+      const PROJECT_KEY = projectKey(item.slug);
+
+      const project = this.projects.get(PROJECT_KEY);
+
+      const syncedProject: Project = {
+        id: item._id,
+        name: item.name,
+        slug: item.slug,
+        score: 0,
+        approved_count: 0,
+        ...project,
+      };
+
+      this.projects.set(PROJECT_KEY, syncedProject);
+      return this.state.storage.put(PROJECT_KEY, syncedProject);
+    });
+
+    await Promise.all(syncUpdates);
+  }
+
+  async reset() {
+    await this.state.blockConcurrencyWhile(async () => {
+      await this.state.storage.deleteAll();
+      await this.initialize();
+      await this.syncProjects();
     });
   }
 }
@@ -527,4 +421,25 @@ export class Fund {
 interface Env {
   WEBFLOW_API_KEY: string;
   BOT_TOKEN: string;
+  ADMINS: string;
 }
+
+const validateUser = (user: DiscordUser, guildMember: GuildMember) => {
+  const { roles } = guildMember;
+  const { id, verified } = user;
+
+  if (!id) throw 'Your Discord email is unverified';
+
+  if (!verified) throw 'Your Discord email is unverified.';
+
+  if (roles.includes(role.ADMIN)) return;
+
+  if (!roles.includes(role.VERIFIED))
+    throw 'The ability to log in to vote is only available for verified community members. To check if you’re eligible to become one, visit the SCF discord and apply.';
+
+  if (!roles.includes(role.VOTER))
+    throw 'The ability to vote is only available for verified community members with a voter role in the SCF discord.';
+
+  if (roles.includes(role.SCF10))
+    throw 'You are ineligible to vote because you have submitted a project for this round.';
+};

@@ -1,19 +1,32 @@
-name = "wrangler-scf-voting"
-# type = "javascript" is required to use the `[build]` section
-type = "javascript"
-account_id = "8d06a01e958a084add5fcf155430e0fa"
-workers_dev = true
-route = ""
-zone_id = ""
-
-[build]
-command = "npm install && npm test && npm run build"
-[build.upload]
-# The "modules" upload format is required for all projects that export a Durable Objects class
-format = "modules"
-main = "./index.mjs"
+name = "scf-voting-dev"
+main = "src/index.ts"
+compatibility_date = "2022-06-05"
+compatibility_flags = ["durable_object_alarms"]
+vars = { ENVIRONMENT = "dev" }
 
 [durable_objects]
 bindings = [
   { name = "FUND", class_name = "Fund" } 
 ]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Fund"]
+
+# [[migrations]]
+# tag = "reset"
+# deleted_classes = ["Fund"]
+
+[env.prod]
+name = "scf-voting-prod"
+vars = { ENVIRONMENT = "prod" }
+
+[env.prod.durable_objects]
+bindings = [
+  { name = "FUND", class_name = "Fund" } 
+]
+
+# [secrets]
+# BOT_TOKEN
+# WEBFLOW_API_KEY
+# ADMINS
