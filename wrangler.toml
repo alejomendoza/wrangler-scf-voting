@@ -18,7 +18,7 @@ new_classes = ["Fund"]
 # deleted_classes = ["Fund"]
 
 [env.prod]
-name = "scf-voting-prod"
+name = "scf-voting"
 vars = { ENVIRONMENT = "prod" }
 
 [env.prod.durable_objects]
