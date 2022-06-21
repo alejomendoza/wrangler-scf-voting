@@ -27,7 +27,7 @@ async function handleRequest(request: Request, env: Env) {
       },
     });
 
-  const id = env.FUND.idFromName('ROUND9A');
+  const id = env.FUND.idFromName('ROUND10');
   const obj = env.FUND.get(id);
   const res = await obj.fetch(request);
   return res;
